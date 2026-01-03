@@ -13,6 +13,8 @@ tar = { version = "0.1.0", path = "tar" }
 tar-android = { version = "0.1.0", path = "tar/android" }
 
 android-activity = { version = "0.6.0", features = ["native-activity"] }
+android_logger = { version = "0.15" }
+ansi_term = { version = "0.12", default-features = false }
 # anyhow = { version = "1.0.94", default-features = false, features = ["std"] }
 # async-fs = { version = "2.1.2", default-features = true }
 # bitflags = { version = "2.6.0", default-features = false }
@@ -40,6 +42,7 @@ futures = { version = "0.3.30", default-features = false, features = ["executor"
 log = { version = "0.4.20", default-features = false }
 # lz4_flex = { version = "0.11.5", default-features = false }
 # more-asserts = { version = "0.3.1", default-features = true }
+panic-log = { version = "0.3.0" }
 # parking_lot = { version = "0.12.3", default-features = false }
 # pollster = { version = "0.4.0", default-features = false, features = ["macro"] }
 # puffin = { version = "0.19.0", default-features = false, features = ["web"] }
@@ -55,6 +58,13 @@ log = { version = "0.4.20", default-features = false }
 # strum = { version = "0.27.2", default-features = false, features = ["derive"] }
 # superluminal-perf = { version = "0.3.0", default-features = false }
 # thiserror = { version = "2.0.7", default-features = true }
+time = { version = "0.3.44", default-features = false, features = [
+    "formatting",
+    "local-offset",
+    "macros",
+    "parsing",
+    "serde",
+] }
 type-map = { version = "0.5.0", default-features = false }
 # uuid = { version = "1.12.1", default-features = false, features = ["v4"] }
 # wasm-bindgen = { version = "0.2.84", default-features = true }

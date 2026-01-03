@@ -1,8 +1,9 @@
+use log::{Level, LevelFilter};
 use std::sync::Arc;
 use winit::{
     error::EventLoopError,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopBuilder},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
 
@@ -10,6 +11,8 @@ use crate::{
     egui_renderer::{self, EguiPass},
     wgpu_util::{self, encode_blit, BlitPassParameters, PipelineDatabase},
 };
+
+use time::{macros::format_description, OffsetDateTime};
 
 static STATIC: std::sync::OnceLock<Static> = std::sync::OnceLock::new();
 
@@ -29,31 +32,95 @@ pub struct Static {
 impl Static {
     pub fn init() -> &'static Self {
         STATIC.get_or_init(|| {
-            let base_level = log::LevelFilter::Info;
-            let wgpu_level = log::LevelFilter::Info;
+            // let base_level = log::LevelFilter::Info;
+            // let wgpu_level = log::LevelFilter::Info;
 
-            cfg_if::cfg_if! {
-                if #[cfg(target_arch = "wasm32")] {
-                    fern::Dispatch::new()
-                        .level(base_level)
-                        .level_for("wgpu_core", wgpu_level)
-                        .level_for("wgpu_hal", wgpu_level)
-                        .level_for("naga", wgpu_level)
-                        .chain(fern::Output::call(console_log::log))
-                        .apply()
-                        .unwrap();
+            // cfg_if::cfg_if! {
+            //     if #[cfg(target_arch = "wasm32")] {
+            //         fern::Dispatch::new()
+            //             .level(base_level)
+            //             .level_for("wgpu_core", wgpu_level)
+            //             .level_for("wgpu_hal", wgpu_level)
+            //             .level_for("naga", wgpu_level)
+            //             .chain(fern::Output::call(console_log::log))
+            //             .apply()
+            //             .unwrap();
 
-                    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-                } else {
-                    env_logger::builder()
-                        .filter_level(base_level)
-                        .filter_module("wgpu_core", wgpu_level)
-                        .filter_module("wgpu_hal", wgpu_level)
-                        .filter_module("naga", wgpu_level)
-                        .parse_default_env()
-                        .init();
-                }
+            //         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            //     } else if #[cfg(target_os = "android")] {
+            //         use log::LevelFilter;
+            //         use android_logger::{Config,FilterBuilder};
+
+            //         android_logger::init_once(
+            //             Config::default()
+            //                 .with_max_level(base_level)
+            //         );
+            //     } else {
+            //         env_logger::builder()
+            //             .filter_level(base_level)
+            //             .filter_module("wgpu_core", wgpu_level)
+            //             .filter_module("wgpu_hal", wgpu_level)
+            //             .filter_module("naga", wgpu_level)
+            //             .parse_default_env()
+            //             .init();
+            //     }
+            // }
+
+            #[cfg(windows)]
+            let _ = ansi_term::enable_ansi_support();
+
+            let mut fern_init = fern::Dispatch::new()
+                .level_for("wgpu_hal", LevelFilter::Error)
+                .filter(|metadata| metadata.level() <= LevelFilter::Info)
+                .format(|out, message, record| {
+                    if cfg!(target_os = "android") {
+                        out.finish(format_args!("{}", message))
+                    } else {
+                        let level = match record.level() {
+                            Level::Debug | Level::Trace => {
+                                ansi_term::Colour::Blue.paint(record.level().as_str())
+                            }
+                            Level::Info => ansi_term::Colour::Green.paint(record.level().as_str()),
+                            Level::Warn => ansi_term::Colour::Yellow.paint(record.level().as_str()),
+                            Level::Error => ansi_term::Colour::Red.paint(record.level().as_str()),
+                        };
+
+                        let pretty_date_format = format_description!(
+                            "[[[year]-[month]-[day]][[[hour]:[minute]:[second]]"
+                        );
+
+                        out.finish(format_args!(
+                            "{}[{}][{}] {}",
+                            OffsetDateTime::now_local()
+                                .unwrap()
+                                .format(&pretty_date_format)
+                                .unwrap(),
+                            record.target(),
+                            level,
+                            message
+                        ))
+                    }
+                });
+
+            #[cfg(target_os = "android")]
+            {
+                fern_init = fern_init.chain(Box::new(android_logger::AndroidLogger::new(
+                    android_logger::Config::default(),
+                )) as Box<dyn log::Log>);
             }
+
+            // android_logger already prints to logcat, and android-activity forwards stdout/stderr to logcat
+            // (so dbg!/println! messages for simple apps don't get lost). Chaining to stdout() would
+            // make everything appear twice.
+            if cfg!(not(target_os = "android")) {
+                fern_init = fern_init.chain(std::io::stdout());
+            }
+
+            fern_init.apply().expect("A logger has already been set!");
+            panic_log::initialize_hook(panic_log::Configuration {
+                force_capture: true,
+                ..Default::default()
+            });
 
             Self {}
         })
@@ -342,6 +409,8 @@ impl<R: RenderPipeline> ApplicationHandler<R> {
 }
 
 impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHandler<R> {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: winit::event::StartCause) {}
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let surface = if let Some(rp_state) = self.rp_state.take() {
             rp_state.surface
@@ -414,7 +483,10 @@ impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHa
             }
             WindowEvent::RedrawRequested => {
                 if let Some(rp_state) = &mut self.rp_state {
-                    let frame = rp_state.surface.acquire(&rp_state.context);
+                    let Some(frame) = rp_state.surface.acquire(&rp_state.context) else {
+                        return;
+                    };
+
                     let frame_format = rp_state.surface.config().view_formats[0];
                     let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
                         format: Some(frame_format),

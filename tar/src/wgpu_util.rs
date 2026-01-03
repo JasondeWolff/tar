@@ -405,10 +405,10 @@ impl Surface {
     }
 
     /// Acquire the next surface texture.
-    pub fn acquire(&mut self, context: &Context) -> wgpu::SurfaceTexture {
-        let surface = self.surface.as_ref().unwrap();
+    pub fn acquire(&mut self, context: &Context) -> Option<wgpu::SurfaceTexture> {
+        let surface = self.surface.as_ref()?;
 
-        match surface.get_current_texture() {
+        Some(match surface.get_current_texture() {
             Ok(frame) => frame,
             // If we timed out, just try again
             Err(wgpu::SurfaceError::Timeout) => surface
@@ -426,7 +426,7 @@ impl Surface {
                     .get_current_texture()
                     .expect("Failed to acquire next surface texture!")
             }
-        }
+        })
     }
 
     /// On suspend on android, we drop the surface, as it's no longer valid.

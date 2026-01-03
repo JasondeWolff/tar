@@ -8,6 +8,7 @@ publish.workspace = true
 version = "0.1.0"
 
 [dependencies]
+ansi_term.workspace = true
 bytemuck.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
@@ -17,6 +18,8 @@ env_logger.workspace = true
 fern.workspace = true
 futures.workspace = true
 log.workspace = true
+panic-log.workspace = true
+time.workspace = true
 type-map.workspace = true
 wgpu.workspace = true
 
@@ -25,4 +28,5 @@ winit.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity.workspace = true
+android_logger.workspace = true
 winit = { workspace = true, features = ["android-native-activity"] }

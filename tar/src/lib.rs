@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::app::QwrlApp;
+use crate::app::{QwrlApp, Static};
 
 pub mod app;
 pub mod egui_renderer;
@@ -49,6 +49,8 @@ impl app::RenderPipeline for TarRenderPipeline {
 }
 
 pub fn internal_main(#[cfg(target_os = "android")] android_app: android_activity::AndroidApp) {
+    Static::init();
+
     let app = QwrlApp::new();
     app.run::<TarRenderPipeline>(
         #[cfg(target_os = "android")]
