@@ -1,15 +1,18 @@
-[package]
-name = "tar"
+[workspace.package]
 authors = ["Jason de Wolff <jasondewolff@gmail.com>"]
 edition = "2021"
 license = "Jason de Wolff Proprietary"
 publish = false
 repository = "https://github.com/JasondeWolff/tar"
 version = "0.1.0"
-rust-version = "1.85"
+rust-version = "1.88"
 homepage = "https://github.com/JasondeWolff/tar"
 
-[dependencies]
+[workspace.dependencies]
+tar = { version = "0.1.0", path = "tar" }
+tar-android = { version = "0.1.0", path = "tar/android" }
+
+android-activity = { version = "0.6.0", features = ["native-activity"] }
 # anyhow = { version = "1.0.94", default-features = false, features = ["std"] }
 # async-fs = { version = "2.1.2", default-features = true }
 # bitflags = { version = "2.6.0", default-features = false }
@@ -63,3 +66,10 @@ winit = { version = "0.30.5", default-features = false, features = ["rwh_06"] }
 wgpu = { version = "25.0.0", default-features = false, features = ["vulkan", "webgpu", "wgsl"] }
 # wgsl-includes = { git = "https://github.com/TemporalInteractive/wgsl-includes.git", default-features = false }
 # xshell = { version = "0.2.7", default-features = true }
+
+[workspace]
+members = [
+    "tar",
+    "tar/android",
+]
+resolver = "2"

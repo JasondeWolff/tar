@@ -2,7 +2,7 @@ use std::sync::Arc;
 use winit::{
     error::EventLoopError,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopBuilder},
     window::{Window, WindowId},
 };
 
@@ -85,12 +85,22 @@ impl QwrlApp {
         }
     }
 
-    pub fn run<R: RenderPipeline>(self) {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn run<R: RenderPipeline>(
+        self,
+        #[cfg(target_os = "android")] android_app: android_activity::AndroidApp,
+    ) {
         let render_loop_handler = ApplicationHandler::<R>::new(self);
-        render_loop_handler.run().unwrap()
+        render_loop_handler
+            .run(
+                #[cfg(target_os = "android")]
+                android_app,
+            )
+            .unwrap()
     }
 
-    pub async fn run_async<R: RenderPipeline>(self) {
+    #[cfg(target_arch = "wasm32")]
+    pub async fn run<R: RenderPipeline>(self) {
         let render_loop_handler = ApplicationHandler::<R>::new(self);
         render_loop_handler.run().unwrap()
     }
@@ -276,8 +286,27 @@ impl<R: RenderPipeline> ApplicationHandler<R> {
         }
     }
 
-    pub fn run(mut self) -> Result<(), EventLoopError> {
-        let event_loop = EventLoop::new().unwrap();
+    pub fn run(
+        mut self,
+        #[cfg(target_os = "android")] android_app: android_activity::AndroidApp,
+    ) -> Result<(), EventLoopError> {
+        let mut builder = EventLoop::builder();
+
+        #[cfg(target_os = "android")]
+        {
+            use winit::platform::android::{
+                activity::WindowManagerFlags, EventLoopBuilderExtAndroid,
+            };
+
+            android_app.set_window_flags(
+                WindowManagerFlags::FULLSCREEN | WindowManagerFlags::KEEP_SCREEN_ON,
+                WindowManagerFlags::empty(),
+            );
+
+            builder.with_android_app(android_app).handle_volume_keys();
+        }
+
+        let event_loop = builder.build().unwrap();
         event_loop.set_control_flow(ControlFlow::Poll);
         event_loop.run_app(&mut self)
     }

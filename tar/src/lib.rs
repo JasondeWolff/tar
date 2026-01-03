@@ -9,6 +9,13 @@ pub mod wgpu_util;
 pub struct TarRenderPipeline {}
 
 impl app::RenderPipeline for TarRenderPipeline {
+    fn required_limits() -> wgpu::Limits {
+        wgpu::Limits {
+            max_texture_dimension_2d: 1024 * 8,
+            ..wgpu::Limits::downlevel_defaults()
+        }
+    }
+
     fn init(
         _config: wgpu::SurfaceConfiguration,
         _adapter: &wgpu::Adapter,
@@ -41,7 +48,10 @@ impl app::RenderPipeline for TarRenderPipeline {
     }
 }
 
-fn main() {
+pub fn internal_main(#[cfg(target_os = "android")] android_app: android_activity::AndroidApp) {
     let app = QwrlApp::new();
-    app.run::<TarRenderPipeline>();
+    app.run::<TarRenderPipeline>(
+        #[cfg(target_os = "android")]
+        android_app,
+    );
 }

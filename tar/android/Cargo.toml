@@ -1,0 +1,16 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "tar-android"
+publish.workspace = true
+version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity.workspace = true
+
+tar = { path = ".." }

@@ -1,0 +1,28 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "tar"
+publish.workspace = true
+version = "0.1.0"
+
+[dependencies]
+bytemuck.workspace = true
+cfg-if.workspace = true
+clap.workspace = true
+egui.workspace = true
+egui-winit.workspace = true
+env_logger.workspace = true
+fern.workspace = true
+futures.workspace = true
+log.workspace = true
+type-map.workspace = true
+wgpu.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+winit.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity.workspace = true
+winit = { workspace = true, features = ["android-native-activity"] }
