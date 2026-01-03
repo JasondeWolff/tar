@@ -1,12 +1,17 @@
 use std::sync::Arc;
 
+use egui_code_editor::{Completer, Syntax};
+
 use crate::app::{QwrlApp, Static};
 
 pub mod app;
-pub mod egui_renderer;
+pub mod egui_util;
 pub mod wgpu_util;
 
-pub struct TarRenderPipeline {}
+pub struct TarRenderPipeline {
+    code: String,
+    completer: Completer,
+}
 
 impl app::RenderPipeline for TarRenderPipeline {
     fn required_limits() -> wgpu::Limits {
@@ -23,7 +28,10 @@ impl app::RenderPipeline for TarRenderPipeline {
         _queue: &wgpu::Queue,
         _window: Arc<winit::window::Window>,
     ) -> Self {
-        Self {}
+        Self {
+            code: String::new(),
+            completer: Completer::new_with_syntax(&Syntax::rust()),
+        }
     }
 
     fn resize(
@@ -42,8 +50,8 @@ impl app::RenderPipeline for TarRenderPipeline {
         _queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
     ) {
-        egui::Window::new("My Window").show(egui_ctx, |ui| {
-            ui.label("Hello World!");
+        egui::CentralPanel::default().show(egui_ctx, |ui| {
+            ui.add(egui::TextEdit::multiline(&mut self.code).desired_rows(30));
         });
     }
 }
