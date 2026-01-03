@@ -8,7 +8,7 @@ use winit::{
 };
 
 use crate::{
-    egui_renderer::{self, EguiPass},
+    egui_util::{self, EguiPass},
     wgpu_util::{self, encode_blit, BlitPassParameters, PipelineDatabase},
 };
 
@@ -319,13 +319,6 @@ impl<R: RenderPipeline> RenderPipelineState<R> {
                 view_formats: &[wgpu::TextureFormat::Rgba16Float],
             });
 
-        self.egui_pass = EguiPass::new(
-            self.color_target.format(),
-            1,
-            &self.window,
-            &self.context.device,
-        );
-
         self.window.request_redraw();
     }
 }
@@ -409,7 +402,7 @@ impl<R: RenderPipeline> ApplicationHandler<R> {
 }
 
 impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHandler<R> {
-    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: winit::event::StartCause) {}
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {}
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let surface = if let Some(rp_state) = self.rp_state.take() {
@@ -515,7 +508,7 @@ impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHa
                         },
                     );
 
-                    let screen_descriptor = egui_renderer::ScreenDescriptor {
+                    let screen_descriptor = egui_util::ScreenDescriptor {
                         size_in_pixels: [
                             rp_state.color_target.width(),
                             rp_state.color_target.height(),

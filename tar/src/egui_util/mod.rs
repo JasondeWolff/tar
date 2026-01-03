@@ -4,6 +4,7 @@ use wgpu::{Device, TextureFormat, TextureView};
 use winit::event::WindowEvent;
 use winit::window::Window;
 
+mod font;
 mod renderer;
 pub use renderer::{Renderer, ScreenDescriptor};
 
@@ -21,6 +22,8 @@ impl EguiPass {
         device: &Device,
     ) -> Self {
         let egui_context = egui::Context::default();
+
+        font::init(&egui_context);
 
         let egui_state = egui_winit::State::new(
             egui_context.clone(),
