@@ -1,5 +1,5 @@
 use log::{Level, LevelFilter};
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 use winit::{
     error::EventLoopError,
     event::WindowEvent,
@@ -127,19 +127,14 @@ impl Static {
     }
 }
 
-pub struct QwrlApp {
+pub struct Runtime<A> {
     #[cfg(not(target_arch = "wasm32"))]
     args: Args,
+    user_app: A,
 }
 
-impl Default for QwrlApp {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl QwrlApp {
-    pub fn new() -> Self {
+impl<A> Runtime<A> {
+    pub fn new(user_app: A) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let args = {
             use clap::Parser;
@@ -149,15 +144,16 @@ impl QwrlApp {
         Self {
             #[cfg(not(target_arch = "wasm32"))]
             args,
+            user_app,
         }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn run<R: RenderPipeline>(
+    pub fn run<R: RenderPipeline<A>>(
         self,
         #[cfg(target_os = "android")] android_app: android_activity::AndroidApp,
     ) {
-        let render_loop_handler = ApplicationHandler::<R>::new(self);
+        let render_loop_handler = ApplicationHandler::<A, R>::new(self);
         render_loop_handler
             .run(
                 #[cfg(target_os = "android")]
@@ -167,13 +163,13 @@ impl QwrlApp {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub async fn run<R: RenderPipeline>(self) {
-        let render_loop_handler = ApplicationHandler::<R>::new(self);
+    pub async fn run<R: RenderPipeline<A>>(self) {
+        let render_loop_handler = ApplicationHandler::<A, R>::new(self);
         render_loop_handler.run().unwrap()
     }
 }
 
-pub trait RenderPipeline: 'static + Sized {
+pub trait RenderPipeline<A>: 'static + Sized {
     const SRGB: bool = true;
 
     fn optional_features() -> wgpu::Features {
@@ -221,10 +217,11 @@ pub trait RenderPipeline: 'static + Sized {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
+        app: &mut A,
     );
 }
 
-struct RenderPipelineState<R: RenderPipeline> {
+struct RenderPipelineState<A, R: RenderPipeline<A>> {
     window: Arc<Window>,
     surface: wgpu_util::Surface,
     context: wgpu_util::Context,
@@ -232,9 +229,11 @@ struct RenderPipelineState<R: RenderPipeline> {
     color_target: wgpu::Texture,
     egui_pass: EguiPass,
     pipeline_database: PipelineDatabase,
+
+    _phantom: PhantomData<A>,
 }
 
-impl<R: RenderPipeline> RenderPipelineState<R> {
+impl<A, R: RenderPipeline<A>> RenderPipelineState<A, R> {
     pub async fn from_window(
         mut surface: wgpu_util::Surface,
         window: Arc<Window>,
@@ -288,6 +287,7 @@ impl<R: RenderPipeline> RenderPipelineState<R> {
             color_target,
             egui_pass,
             pipeline_database,
+            _phantom: PhantomData,
         }
     }
 
@@ -323,20 +323,20 @@ impl<R: RenderPipeline> RenderPipelineState<R> {
     }
 }
 
-pub struct ApplicationHandler<R: RenderPipeline> {
+pub struct ApplicationHandler<A, R: RenderPipeline<A>> {
     // Render pipeline state can be recreated or dropped altogether when in android or web. Applications out of focus lose access to the graphics device.
-    rp_state: Option<RenderPipelineState<R>>,
+    rp_state: Option<RenderPipelineState<A, R>>,
     #[cfg(target_arch = "wasm32")]
     rp_state_reciever: Option<futures::channel::oneshot::Receiver<RenderPipelineState<U, R>>>,
 
     // The app state, everything except graphics should be persistent and stay in RAM.
-    app: QwrlApp,
+    app: Runtime<A>,
 
     frame_idx: u32,
 }
 
-impl<R: RenderPipeline> ApplicationHandler<R> {
-    pub fn new(app: QwrlApp) -> Self {
+impl<A, R: RenderPipeline<A>> ApplicationHandler<A, R> {
+    pub fn new(app: Runtime<A>) -> Self {
         Self {
             rp_state: None,
             #[cfg(target_arch = "wasm32")]
@@ -401,7 +401,7 @@ impl<R: RenderPipeline> ApplicationHandler<R> {
     }
 }
 
-impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHandler<R> {
+impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for ApplicationHandler<A, R> {
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: winit::event::StartCause) {}
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -445,7 +445,7 @@ impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHa
             } else {
                 use futures::executor::block_on;
 
-                self.rp_state = Some(block_on(RenderPipelineState::<R>::from_window(surface, window, self.app.args.no_gpu_validation)));
+                self.rp_state = Some(block_on(RenderPipelineState::<A, R>::from_window(surface, window, self.app.args.no_gpu_validation)));
             }
         }
     }
@@ -498,6 +498,7 @@ impl<R: RenderPipeline> winit::application::ApplicationHandler for ApplicationHa
                         &rp_state.context.device,
                         &rp_state.context.queue,
                         &mut egui_ctx,
+                        &mut self.app.user_app,
                     );
 
                     rp_state.egui_pass.end_frame(egui_ctx);
