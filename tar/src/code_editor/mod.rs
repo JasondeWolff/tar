@@ -169,6 +169,16 @@ impl CodeEditor {
 
         let time = ui.input(|i| i.time);
 
+        let event_filter = egui::EventFilter {
+            tab: true,
+            vertical_arrows: true,
+            horizontal_arrows: true,
+            escape: false,
+        };
+        ui.memory_mut(|mem| mem.set_focus_lock_filter(response.id, event_filter));
+
+        let response = response.on_hover_cursor(egui::CursorIcon::Text);
+
         if response.clicked() {
             ui.memory_mut(|m| m.request_focus(response.id));
             self.cursor_blink_offset = time;
@@ -206,7 +216,8 @@ impl CodeEditor {
             }
 
             // --- Input ---
-            for event in ui.input(|i| i.events.clone()) {
+            let events = ui.input(|i| i.filtered_events(&event_filter));
+            for event in events {
                 match event {
                     egui::Event::Text(text) => {
                         self.doc.insert(self.cursor, &text);
@@ -258,6 +269,18 @@ impl CodeEditor {
                             self.desired_column = None;
                             self.cursor_blink_offset = time;
                         }
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::Tab,
+                        pressed: true,
+                        ..
+                    } => {
+                        self.doc.insert(self.cursor, "    ");
+                        self.cursor += 4;
+
+                        self.selection = None;
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
                         key: egui::Key::ArrowLeft,
