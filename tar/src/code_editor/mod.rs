@@ -16,6 +16,9 @@ pub mod highlighting;
 pub mod syntax;
 pub mod themes;
 
+const INDENT: &str = "    ";
+const INDENT_WIDTH: usize = 4;
+
 fn char_to_line_col(doc: &Rope, char_idx: usize) -> (usize, usize) {
     let line = doc.char_to_line(char_idx);
     let line_start = doc.line_to_char(line);
@@ -44,6 +47,29 @@ fn y_to_row_index(y: f32, galley: &egui::Galley) -> usize {
     }
 
     galley.rows.len().saturating_sub(1)
+}
+
+fn selection_line_range(
+    doc: &ropey::Rope,
+    sel: &std::ops::Range<usize>,
+) -> std::ops::RangeInclusive<usize> {
+    let start_line = doc.char_to_line(sel.start);
+    let mut end_line = doc.char_to_line(sel.end);
+
+    // If selection ends exactly at start of a line, don't include that line
+    if sel.end > sel.start && doc.line_to_char(end_line) == sel.end {
+        end_line = end_line.saturating_sub(1);
+    }
+
+    start_line..=end_line
+}
+
+fn safe_char_to_line(doc: &Rope, char_idx: usize) -> usize {
+    if char_idx >= doc.len_chars() {
+        doc.len_lines().saturating_sub(1)
+    } else {
+        doc.char_to_line(char_idx)
+    }
 }
 
 pub struct CodeEditor {
@@ -366,6 +392,13 @@ impl CodeEditor {
             for event in events {
                 match event {
                     egui::Event::Text(text) => {
+                        if let Some(selection) = &self.selection {
+                            if selection.start != selection.end {
+                                self.doc.remove(selection.start..selection.end);
+                                self.cursor = selection.start;
+                            }
+                        }
+
                         self.doc.insert(self.cursor, &text);
                         self.cursor += text.chars().count();
 
@@ -395,37 +428,118 @@ impl CodeEditor {
                         pressed: true,
                         ..
                     } => {
-                        if self.cursor > 0 {
+                        if let Some(selection) = &self.selection {
+                            if selection.start != selection.end {
+                                self.doc.remove(selection.start..selection.end);
+                                self.cursor = selection.start;
+                            }
+                        } else if self.cursor > 0 {
                             self.doc.remove((self.cursor - 1)..self.cursor);
                             self.cursor = self.cursor.saturating_sub(1);
-
-                            self.selection = None;
-                            self.desired_column = None;
-                            self.cursor_blink_offset = time;
                         }
+
+                        self.selection = None;
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
                         key: egui::Key::Delete,
                         pressed: true,
                         ..
                     } => {
-                        if self.cursor < self.doc.len_chars() {
+                        if let Some(selection) = &self.selection {
+                            if selection.start != selection.end {
+                                self.doc.remove(selection.start..selection.end);
+                                self.cursor = selection.start;
+                            }
+                        } else if self.cursor < self.doc.len_chars() {
                             self.doc.remove(self.cursor..self.cursor + 1);
-
-                            self.selection = None;
-                            self.desired_column = None;
-                            self.cursor_blink_offset = time;
                         }
+
+                        self.selection = None;
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
                         key: egui::Key::Tab,
                         pressed: true,
+                        modifiers,
                         ..
                     } => {
-                        self.doc.insert(self.cursor, "    ");
-                        self.cursor += 4;
+                        let shift = modifiers.shift;
 
-                        self.selection = None;
+                        if let Some(selection) = self.selection.clone() {
+                            let line_range = selection_line_range(&self.doc, &selection);
+
+                            if shift {
+                                // ---- SHIFT+TAB : UNINDENT ----
+                                let mut removed_total = 0;
+
+                                for line in line_range.clone() {
+                                    let line_start = self.doc.line_to_char(line);
+                                    let line_text = self.doc.line(line);
+
+                                    let remove_count = line_text
+                                        .chars()
+                                        .take_while(|c| *c == ' ')
+                                        .take(INDENT_WIDTH)
+                                        .count();
+
+                                    if remove_count > 0 {
+                                        self.doc.remove(line_start..line_start + remove_count);
+                                        removed_total += remove_count;
+                                    }
+                                }
+
+                                self.cursor = self.cursor.saturating_sub(removed_total);
+                            } else {
+                                // ---- TAB : INDENT ----
+                                let mut added_total = 0;
+
+                                for line in line_range.clone() {
+                                    let line_start = self.doc.line_to_char(line);
+                                    self.doc.insert(line_start, INDENT);
+                                    added_total += INDENT_WIDTH;
+                                }
+
+                                self.cursor += added_total;
+                            }
+
+                            // Update selection to stay covering same lines
+                            let start_line = self.doc.char_to_line(selection.start);
+                            let end_line = safe_char_to_line(&self.doc, selection.end);
+
+                            let new_start = self.doc.line_to_char(start_line);
+                            let new_end = self
+                                .doc
+                                .line_to_char(end_line + 1)
+                                .min(self.doc.len_chars());
+
+                            self.selection = Some(new_start..new_end);
+                        } else {
+                            // ---- No selection ----
+                            if shift {
+                                // Unindent current line
+                                let line = self.doc.char_to_line(self.cursor);
+                                let line_start = self.doc.line_to_char(line);
+                                let line_text = self.doc.line(line);
+
+                                let remove_count = line_text
+                                    .chars()
+                                    .take_while(|c| *c == ' ')
+                                    .take(INDENT_WIDTH)
+                                    .count();
+
+                                if remove_count > 0 {
+                                    self.doc.remove(line_start..line_start + remove_count);
+                                    self.cursor = self.cursor.saturating_sub(remove_count);
+                                }
+                            } else {
+                                self.doc.insert(self.cursor, INDENT);
+                                self.cursor += INDENT_WIDTH;
+                            }
+                        }
+
                         self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
@@ -493,10 +607,53 @@ impl CodeEditor {
                         self.selection = None;
                         self.cursor_blink_offset = time;
                     }
+                    egui::Event::Copy => {
+                        if let Some(text) = self.selected_text() {
+                            ui.ctx().copy_text(text);
+                        }
+                    }
+                    egui::Event::Cut => {
+                        if let Some(selection) = &self.selection {
+                            if selection.start != selection.end {
+                                if let Some(text) = self.selected_text() {
+                                    ui.ctx().copy_text(text);
+                                }
+
+                                self.doc.remove(selection.start..selection.end);
+                                self.cursor = selection.start;
+                            }
+                        }
+
+                        self.selection = None;
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
+                    }
+                    egui::Event::Paste(text) => {
+                        if let Some(selection) = &self.selection {
+                            if selection.start != selection.end {
+                                self.doc.remove(selection.start..selection.end);
+                                self.cursor = selection.start;
+                            }
+                        }
+
+                        println!("PASTE!");
+                        self.doc.insert(self.cursor, &text);
+                        self.cursor += text.chars().count();
+
+                        self.selection = None;
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
+                    }
                     _ => {}
                 }
             }
         }
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        self.selection
+            .as_ref()
+            .map(|range| self.doc.slice(range.clone()).to_string())
     }
 
     fn format_token(&self, ty: TokenType) -> egui::text::TextFormat {

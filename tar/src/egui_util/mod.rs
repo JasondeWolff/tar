@@ -48,6 +48,7 @@ impl EguiPass {
 
     pub fn handle_window_event(&mut self, window: &Window, event: &WindowEvent) {
         let _ = self.state.on_window_event(window, event);
+        //self.state.handle_platform_output(window, platform_output);
     }
 
     pub fn begin_frame(&mut self, window: &Window) -> egui::Context {

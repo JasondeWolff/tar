@@ -64,18 +64,7 @@ impl app::RenderPipeline<App> for RenderPipeline {
         app: &mut App,
     ) {
         egui::CentralPanel::default().show(egui_ctx, |ui| {
-            // ui.add(egui::TextEdit::multiline(&mut self.code).desired_rows(30));
-
             app.code.ui(ui);
-
-            // CodeEditor::default()
-            //     .id_source("code editor")
-            //     .with_rows(12)
-            //     .with_fontsize(14.0)
-            //     .with_theme(ColorTheme::GITHUB_DARK)
-            //     .with_syntax(Syntax::rust())
-            //     .with_numlines(true)
-            //     .show_with_completer(ui, &mut app.code, &mut app.completer);
         });
     }
 }

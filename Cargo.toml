@@ -28,7 +28,7 @@ clap = { version = "4.5.35", default-features = true, features = ["derive"] }
 egui = { version = "0.33.3", default-features = true, features = ["bytemuck"] }
 #egui_code_editor = "0.2.20"
 # egui-phosphor = { version = "0.9.0", default-features = true }
-egui-winit = { version = "0.33.3", default-features = false, features = ["webbrowser"] }
+egui-winit = { version = "0.33.3", default-features = false, features = ["webbrowser", "clipboard"] }
 env_logger = { version = "0.11.5", default-features = true }
 fern = { version = "0.7.1", default-features = true }
 # flate2 = { version = "1.0.28", default-features = true }
