@@ -23,10 +23,25 @@ fn char_to_line_col(doc: &Rope, char_idx: usize) -> (usize, usize) {
     (line, char_idx - line_start)
 }
 
+fn leading_whitespace(s: &str) -> &str {
+    let count = s.chars().take_while(|c| *c == ' ' || *c == '\t').count();
+    &s[..count]
+}
+
+fn line_len_without_newline(line: ropey::RopeSlice) -> usize {
+    let len = line.len_chars();
+    if len > 0 && line.char(len - 1) == '\n' {
+        len - 1
+    } else {
+        len
+    }
+}
+
 pub struct CodeEditor {
     pub doc: Rope,
     pub cursor: usize, // char index
     cursor_blink_offset: f64,
+    desired_column: Option<usize>,
     pub selection: Option<Range<usize>>,
 
     theme: ColorTheme,
@@ -40,6 +55,7 @@ impl CodeEditor {
             doc: Rope::from_str(text),
             cursor: 0,
             cursor_blink_offset: 0.0,
+            desired_column: None,
             selection: None,
             theme,
             syntax,
@@ -59,15 +75,56 @@ impl CodeEditor {
 
         let painter = ui.painter_at(rect);
 
-        // Background
+        // --- Render background ---
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(25, 25, 25));
 
-        // --- Render text line by line ---
+        // --- Render line numbers ---
+        let total_lines = self.doc.len_lines().max(1);
+        let digits = total_lines.ilog10() + 1;
+        let gutter_padding = 8.0;
+
+        let digit_width = ui.fonts_mut(|f| {
+            f.layout_no_wrap("0".to_string(), font_id.clone(), egui::Color32::GRAY)
+                .size()
+                .x
+        });
+        let gutter_width = digit_width * digits as f32 + gutter_padding * 2.0;
+
+        let gutter_rect =
+            egui::Rect::from_min_max(rect.min, egui::pos2(rect.min.x + gutter_width, rect.max.y));
+        painter.rect_filled(gutter_rect, 0.0, egui::Color32::from_rgb(30, 30, 30));
+
+        let mut y = rect.min.y;
+        let number_color = egui::Color32::from_gray(140);
+
+        for line_idx in 0..total_lines {
+            let line_number = (line_idx + 1).to_string();
+
+            let text_size = ui.fonts_mut(|f| {
+                f.layout_no_wrap(line_number.clone(), font_id.clone(), number_color)
+                    .size()
+            });
+
+            let x = rect.min.x + gutter_width - gutter_padding - text_size.x;
+
+            painter.text(
+                egui::pos2(x, y),
+                egui::Align2::LEFT_TOP,
+                line_number,
+                font_id.clone(),
+                number_color,
+            );
+
+            y += line_height;
+        }
+
+        // --- Render text ---
         let source = self.doc.to_string();
         let layout_job = highlight(ui.ctx(), self, &source);
         let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
 
-        let pos = egui::pos2(rect.min.x + 6.0, rect.min.y);
+        let text_x = rect.min.x + gutter_width + 6.0;
+        let pos = egui::pos2(text_x, rect.min.y);
         painter.galley(pos, galley, Color32::WHITE);
 
         let time = ui.input(|i| i.time);
@@ -85,8 +142,7 @@ impl CodeEditor {
 
             if cursor_visible {
                 let (cursor_line, cursor_col) = char_to_line_col(&self.doc, self.cursor);
-                let cursor_x = rect.min.x
-                    + 6.0
+                let cursor_x = text_x
                     + ui.fonts_mut(|f| {
                         f.layout_no_wrap(
                             self.doc.line(cursor_line).slice(..cursor_col).to_string(),
@@ -115,6 +171,24 @@ impl CodeEditor {
                         self.doc.insert(self.cursor, &text);
                         self.cursor += text.chars().count();
 
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::Enter,
+                        pressed: true,
+                        ..
+                    } => {
+                        let (line, _) = char_to_line_col(&self.doc, self.cursor);
+                        let line_text = self.doc.line(line).to_string();
+                        let indent = leading_whitespace(&line_text);
+
+                        let insert_text = format!("\n{}", indent);
+                        self.doc.insert(self.cursor, &insert_text);
+                        self.cursor += insert_text.chars().count();
+
+                        self.selection = None;
+                        self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
@@ -125,8 +199,22 @@ impl CodeEditor {
                         if self.cursor > 0 {
                             self.doc.remove((self.cursor - 1)..self.cursor);
                             self.cursor = self.cursor.saturating_sub(1);
-                            self.selection = None;
 
+                            self.selection = None;
+                            self.desired_column = None;
+                            self.cursor_blink_offset = time;
+                        }
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::Delete,
+                        pressed: true,
+                        ..
+                    } => {
+                        if self.cursor < self.doc.len_chars() {
+                            self.doc.remove(self.cursor..self.cursor + 1);
+
+                            self.selection = None;
+                            self.desired_column = None;
                             self.cursor_blink_offset = time;
                         }
                     }
@@ -136,8 +224,9 @@ impl CodeEditor {
                         ..
                     } => {
                         self.cursor = self.cursor.saturating_sub(1);
-                        self.selection = None;
 
+                        self.selection = None;
+                        self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
@@ -146,8 +235,51 @@ impl CodeEditor {
                         ..
                     } => {
                         self.cursor = (self.cursor + 1).min(self.doc.len_chars());
-                        self.selection = None;
 
+                        self.selection = None;
+                        self.desired_column = None;
+                        self.cursor_blink_offset = time;
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::ArrowUp,
+                        pressed: true,
+                        ..
+                    } => {
+                        let (line, col) = char_to_line_col(&self.doc, self.cursor);
+
+                        if line > 0 {
+                            let target_col = self.desired_column.unwrap_or(col);
+                            let prev_line = self.doc.line(line - 1);
+                            let prev_line_start = self.doc.line_to_char(line - 1);
+                            let prev_line_len = line_len_without_newline(prev_line);
+
+                            let new_col = target_col.min(prev_line_len);
+                            self.cursor = prev_line_start + new_col;
+                            self.desired_column = Some(target_col);
+                        }
+
+                        self.selection = None;
+                        self.cursor_blink_offset = time;
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::ArrowDown,
+                        pressed: true,
+                        ..
+                    } => {
+                        let (line, col) = char_to_line_col(&self.doc, self.cursor);
+
+                        if line + 1 < self.doc.len_lines() {
+                            let target_col = self.desired_column.unwrap_or(col);
+                            let next_line = self.doc.line(line + 1);
+                            let next_line_start = self.doc.line_to_char(line + 1);
+                            let next_line_len = line_len_without_newline(next_line);
+
+                            let new_col = target_col.min(next_line_len);
+                            self.cursor = next_line_start + new_col;
+                            self.desired_column = Some(target_col);
+                        }
+
+                        self.selection = None;
                         self.cursor_blink_offset = time;
                     }
                     _ => {}
