@@ -1,7 +1,6 @@
 // Modified version built on-top of Roman Chumaks egui_code_editor (https://github.com/p4ymak/egui_code_editor/)
 
-use egui::text::LayoutJob;
-use egui::{Color32, Galley};
+use egui::Color32;
 use ropey::Rope;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -39,7 +38,7 @@ fn line_len_without_newline(line: ropey::RopeSlice) -> usize {
 
 fn y_to_row_index(y: f32, galley: &egui::Galley) -> usize {
     for (i, row) in galley.rows.iter().enumerate() {
-        if y < row.max_y() {
+        if y >= row.min_y() && y < row.max_y() {
             return i;
         }
     }
@@ -252,9 +251,11 @@ impl CodeEditor {
                 let line = y_to_row_index(y, &galley);
 
                 let line_text = self.doc.line(line);
+                let max_col = line_len_without_newline(line_text);
                 let mut x = 0.0;
                 let mut col = 0;
-                for (i, c) in line_text.chars().enumerate() {
+
+                for (i, c) in line_text.chars().take(max_col).enumerate() {
                     let cw = ui.fonts_mut(|f| {
                         f.layout_no_wrap(c.to_string(), font_id.clone(), Color32::WHITE)
                             .size()
@@ -267,6 +268,7 @@ impl CodeEditor {
                     x += cw;
                     col = i + 1;
                 }
+                col = col.min(max_col);
 
                 let char_idx = self.doc.line_to_char(line) + col;
 
@@ -288,9 +290,11 @@ impl CodeEditor {
                     let line = y_to_row_index(y, &galley);
 
                     let line_text = self.doc.line(line);
+                    let max_col = line_len_without_newline(line_text);
                     let mut x = 0.0;
                     let mut col = 0;
-                    for (i, c) in line_text.chars().enumerate() {
+
+                    for (i, c) in line_text.chars().take(max_col).enumerate() {
                         let cw = ui.fonts_mut(|f| {
                             f.layout_no_wrap(c.to_string(), font_id.clone(), Color32::WHITE)
                                 .size()
@@ -303,6 +307,7 @@ impl CodeEditor {
                         x += cw;
                         col = i + 1;
                     }
+                    col = col.min(max_col);
                     (line, col)
                 };
                 let char_idx = self.doc.line_to_char(drag_line) + drag_col;
@@ -364,6 +369,7 @@ impl CodeEditor {
                         self.doc.insert(self.cursor, &text);
                         self.cursor += text.chars().count();
 
+                        self.selection = None;
                         self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
@@ -499,7 +505,7 @@ impl CodeEditor {
         egui::text::TextFormat::simple(font_id, color)
     }
 
-    fn append(&self, job: &mut LayoutJob, token: &Token) {
+    fn append(&self, job: &mut egui::text::LayoutJob, token: &Token) {
         if !token.buffer().is_empty() {
             job.append(token.buffer(), 0.0, self.format_token(token.ty()));
         }
