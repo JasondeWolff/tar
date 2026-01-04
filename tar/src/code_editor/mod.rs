@@ -11,6 +11,7 @@ use crate::code_editor::{
     syntax::{Syntax, TokenType},
     themes::ColorTheme,
 };
+use crate::egui_util::KeyModifiers;
 
 pub mod highlighting;
 pub mod syntax;
@@ -100,15 +101,15 @@ impl CodeEditor {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) {
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                self.draw_editor(ui);
+                self.draw_editor(ui, key_modifiers);
             });
     }
 
-    pub fn draw_editor(&mut self, ui: &mut egui::Ui) {
+    pub fn draw_editor(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) {
         // --- Build text layout ---
         let mut source = self.doc.to_string();
         // TODO: better fix
@@ -391,20 +392,34 @@ impl CodeEditor {
             let events = ui.input(|i| i.filtered_events(&event_filter));
             for event in events {
                 match event {
-                    egui::Event::Text(text) | egui::Event::Paste(text) => {
-                        if let Some(selection) = &self.selection {
-                            if selection.start != selection.end {
-                                self.doc.remove(selection.start..selection.end);
-                                self.cursor = selection.start;
+                    egui::Event::Text(text) => {
+                        if key_modifiers.ctrl {
+                            #[cfg(target_os = "android")]
+                            match text.as_str() {
+                                "c" | "C" => self.copy(ui),
+                                "v" | "V" => {
+                                    if let Ok(text) = android_clipboard::get_text() {
+                                        self.paste(ui, text);
+                                    }
+                                }
+                                "x" | "X" => self.cut(ui),
+                                _ => {}
                             }
+                        } else {
+                            if let Some(selection) = &self.selection {
+                                if selection.start != selection.end {
+                                    self.doc.remove(selection.start..selection.end);
+                                    self.cursor = selection.start;
+                                }
+                            }
+
+                            self.doc.insert(self.cursor, &text);
+                            self.cursor += text.chars().count();
+
+                            self.selection = None;
+                            self.desired_column = None;
+                            self.cursor_blink_offset = time;
                         }
-
-                        self.doc.insert(self.cursor, &text);
-                        self.cursor += text.chars().count();
-
-                        self.selection = None;
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
                         key: egui::Key::Enter,
@@ -608,30 +623,69 @@ impl CodeEditor {
                         self.cursor_blink_offset = time;
                     }
                     egui::Event::Copy => {
-                        if let Some(text) = self.selected_text() {
-                            ui.ctx().copy_text(text);
-                        }
+                        self.copy(ui);
                     }
                     egui::Event::Cut => {
-                        if let Some(selection) = &self.selection {
-                            if selection.start != selection.end {
-                                if let Some(text) = self.selected_text() {
-                                    ui.ctx().copy_text(text);
-                                }
-
-                                self.doc.remove(selection.start..selection.end);
-                                self.cursor = selection.start;
-                            }
-                        }
-
-                        self.selection = None;
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
+                        self.cut(ui);
+                    }
+                    egui::Event::Paste(text) => {
+                        self.paste(ui, text);
                     }
                     _ => {}
                 }
             }
         }
+    }
+
+    fn copy(&self, ui: &mut egui::Ui) {
+        if let Some(text) = self.selected_text() {
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "android")] {
+                    android_clipboard::set_text(text);
+                } else {
+                    ui.ctx().copy_text(text.clone());
+                }
+            }
+        }
+    }
+
+    fn cut(&mut self, ui: &mut egui::Ui) {
+        if let Some(selection) = &self.selection {
+            if selection.start != selection.end {
+                if let Some(text) = self.selected_text() {
+                    cfg_if::cfg_if! {
+                        if #[cfg(target_os = "android")] {
+                            android_clipboard::set_text(text);
+                        } else {
+                            ui.ctx().copy_text(text.clone());
+                        }
+                    }
+                }
+
+                self.doc.remove(selection.start..selection.end);
+                self.cursor = selection.start;
+            }
+        }
+
+        self.selection = None;
+        self.desired_column = None;
+        self.cursor_blink_offset = ui.input(|i| i.time);
+    }
+
+    fn paste(&mut self, ui: &mut egui::Ui, text: String) {
+        if let Some(selection) = &self.selection {
+            if selection.start != selection.end {
+                self.doc.remove(selection.start..selection.end);
+                self.cursor = selection.start;
+            }
+        }
+
+        self.doc.insert(self.cursor, &text);
+        self.cursor += text.chars().count();
+
+        self.selection = None;
+        self.desired_column = None;
+        self.cursor_blink_offset = ui.input(|i| i.time);
     }
 
     fn selected_text(&self) -> Option<String> {

@@ -13,6 +13,7 @@ tar = { version = "0.1.0", path = "tar" }
 tar-android = { version = "0.1.0", path = "tar/android" }
 
 android-activity = { version = "0.6.0", features = ["native-activity"] }
+android_clipboard = "0.1.0"
 android_logger = { version = "0.15" }
 ansi_term = { version = "0.12", default-features = false }
 # anyhow = { version = "1.0.94", default-features = false, features = ["std"] }

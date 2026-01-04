@@ -10,6 +10,13 @@ mod style;
 mod renderer;
 pub use renderer::{Renderer, ScreenDescriptor};
 
+#[derive(Default)]
+pub struct KeyModifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+}
+
 pub struct EguiPass {
     context: Option<egui::Context>,
     state: State,

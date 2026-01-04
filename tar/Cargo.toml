@@ -29,5 +29,6 @@ winit.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity.workspace = true
+android_clipboard.workspace = true
 android_logger.workspace = true
 winit = { workspace = true, features = ["android-native-activity"] }

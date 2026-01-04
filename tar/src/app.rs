@@ -1,14 +1,16 @@
+use egui::Key;
 use log::{Level, LevelFilter};
 use std::{marker::PhantomData, sync::Arc};
 use winit::{
     error::EventLoopError,
-    event::WindowEvent,
+    event::{DeviceEvent, ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    keyboard::{self, NamedKey},
     window::{Window, WindowId},
 };
 
 use crate::{
-    egui_util::{self, EguiPass},
+    egui_util::{self, EguiPass, KeyModifiers},
     wgpu_util::{
         blit_pass::{encode_blit, BlitPassParameters},
         context_wrapper::ContextWrapper,
@@ -136,6 +138,7 @@ pub struct Runtime<A> {
     #[cfg(not(target_arch = "wasm32"))]
     args: Args,
     user_app: A,
+    key_modifiers: KeyModifiers,
 }
 
 impl<A> Runtime<A> {
@@ -150,6 +153,7 @@ impl<A> Runtime<A> {
             #[cfg(not(target_arch = "wasm32"))]
             args,
             user_app,
+            key_modifiers: KeyModifiers::default(),
         }
     }
 
@@ -222,6 +226,7 @@ pub trait RenderPipeline<A>: 'static + Sized {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
+        key_modifiers: &KeyModifiers,
         app: &mut A,
     );
 }
@@ -468,6 +473,29 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
             self.rp_state.as_ref().unwrap().window.request_redraw();
         }
 
+        // event = match event {
+        //     WindowEvent::KeyboardInput {
+        //         device_id,
+        //         event,
+        //         is_synthetic,
+        //     } => {
+        //         //let event = event;
+
+        //         if let keyboard::Key::Named(key) = event.logical_key {
+        //             if key == NamedKey::Control && event.repeat {
+        //                 return;
+        //             }
+        //         }
+
+        //         WindowEvent::KeyboardInput {
+        //             device_id,
+        //             event,
+        //             is_synthetic,
+        //         }
+        //     }
+        //     _ => event,
+        // };
+
         if let Some(rp_state) = &mut self.rp_state {
             rp_state.render_pipeline.window_event(event.clone());
             rp_state
@@ -503,6 +531,7 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
                         &rp_state.context.device,
                         &rp_state.context.queue,
                         &mut egui_ctx,
+                        &self.app.key_modifiers,
                         &mut self.app.user_app,
                     );
 
@@ -559,6 +588,18 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
                     rp_state.resize(size);
                 }
             }
+            WindowEvent::KeyboardInput { event, .. } => {
+                let pressed = event.state == ElementState::Pressed;
+
+                match event.logical_key {
+                    keyboard::Key::Named(NamedKey::Control) => {
+                        self.app.key_modifiers.ctrl = pressed
+                    }
+                    keyboard::Key::Named(NamedKey::Shift) => self.app.key_modifiers.shift = pressed,
+                    keyboard::Key::Named(NamedKey::Alt) => self.app.key_modifiers.alt = pressed,
+                    _ => {}
+                }
+            }
             _ => (),
         }
     }
@@ -569,6 +610,8 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
         _device_id: winit::event::DeviceId,
         _event: winit::event::DeviceEvent,
     ) {
+        //DeviceEvent::Key(())
+        //log::info!("{:?}", event);
         // if let Some(rp_state) = &mut self.rp_state {
         //     // rp_state.render_pipeline.device_event(event.clone());
 

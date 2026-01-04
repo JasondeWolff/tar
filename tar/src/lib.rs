@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::{
     app::{Runtime, Static},
     code_editor::{syntax::Syntax, themes::ColorTheme, CodeEditor},
+    egui_util::KeyModifiers,
 };
 
 pub mod app;
@@ -61,10 +62,11 @@ impl app::RenderPipeline<App> for RenderPipeline {
         _device: &wgpu::Device,
         _queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
+        key_modifiers: &KeyModifiers,
         app: &mut App,
     ) {
         egui::CentralPanel::default().show(egui_ctx, |ui| {
-            app.code.ui(ui);
+            app.code.ui(ui, key_modifiers);
         });
     }
 }
