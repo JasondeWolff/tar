@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     app::{Runtime, Static},
-    code_editor::CodeEditor,
+    code_editor::{syntax::Syntax, themes::ColorTheme, CodeEditor},
 };
 
 pub mod app;
@@ -17,7 +17,11 @@ pub struct App {
 impl App {
     fn new() -> Self {
         Self {
-            code: CodeEditor::new("let pos: vec2 = vec2(0.0);"),
+            code: CodeEditor::new(
+                "let pos: vec2 = vec2(0.0);",
+                ColorTheme::GITHUB_DARK,
+                Syntax::rust(),
+            ),
         }
     }
 }

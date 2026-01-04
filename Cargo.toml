@@ -26,7 +26,7 @@ clap = { version = "4.5.35", default-features = true, features = ["derive"] }
 # console_log = { version = "1.0.0", default-features = true }
 # ctor = { version = "0.2.9", default-features = false }
 egui = { version = "0.33.3", default-features = true, features = ["bytemuck"] }
-egui_code_editor = "0.2.20"
+#egui_code_editor = "0.2.20"
 # egui-phosphor = { version = "0.9.0", default-features = true }
 egui-winit = { version = "0.33.3", default-features = false, features = ["webbrowser"] }
 env_logger = { version = "0.11.5", default-features = true }
@@ -67,8 +67,6 @@ time = { version = "0.3.44", default-features = false, features = [
     "parsing",
     "serde",
 ] }
-tree-sitter = "0.20.6"
-tree-sitter-wgsl = "0.0.6"
 type-map = { version = "0.5.0", default-features = false }
 # uuid = { version = "1.12.1", default-features = false, features = ["v4"] }
 # wasm-bindgen = { version = "0.2.84", default-features = true }
