@@ -44,6 +44,8 @@ pub struct CodeEditor {
     desired_column: Option<usize>,
     pub selection: Option<Range<usize>>,
 
+    scroll: egui::Vec2,
+
     theme: ColorTheme,
     syntax: Syntax,
     fontsize: f32,
@@ -57,6 +59,7 @@ impl CodeEditor {
             cursor_blink_offset: 0.0,
             desired_column: None,
             selection: None,
+            scroll: egui::Vec2::ZERO,
             theme,
             syntax,
             fontsize: 14.0,
@@ -64,13 +67,46 @@ impl CodeEditor {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                self.draw_editor(ui);
+            });
+    }
+
+    pub fn draw_editor(&mut self, ui: &mut egui::Ui) {
+        // --- Build text layout ---
+        let mut source = self.doc.to_string();
+        // TODO: better fix
+        if source.is_empty() {
+            source = "\n".to_owned();
+        }
+
+        let layout_job = highlight(ui.ctx(), self, &source);
+        let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
+
+        // --- Allocate base rect ---
         let font_id = egui::FontId::monospace(self.fontsize);
         let line_height = ui.fonts_mut(|f| f.row_height(&font_id));
 
-        let desired_size = egui::vec2(
-            ui.available_width(),
-            line_height * self.doc.len_lines() as f32,
-        );
+        let mut width = ui.available_width();
+        // Estimate max line width (cheap but effective)
+        let max_line_width = self
+            .doc
+            .lines()
+            .map(|l| {
+                ui.fonts_mut(|f| {
+                    f.layout_no_wrap(l.to_string(), font_id.clone(), egui::Color32::WHITE)
+                        .size()
+                        .x
+                })
+            })
+            .fold(0.0, f32::max);
+        width = width.max(max_line_width + 200.0);
+
+        let height = galley.rows.last().unwrap().max_y();
+
+        let desired_size = egui::vec2(width, height);
         let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
 
         let painter = ui.painter_at(rect);
@@ -78,19 +114,9 @@ impl CodeEditor {
         // --- Render background ---
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(25, 25, 25));
 
-        // --- Render active line highlight ---
+        // --- Render line highlights ---
         let (cursor_line, _) = char_to_line_col(&self.doc, self.cursor);
-        let current_line_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.min.x, rect.min.y + cursor_line as f32 * line_height),
-            egui::pos2(
-                rect.max.x,
-                rect.min.y + (cursor_line + 1) as f32 * line_height,
-            ),
-        );
 
-        painter.rect_filled(current_line_rect, 0.0, egui::Color32::from_rgb(35, 35, 35));
-
-        // --- Render line numbers ---
         let total_lines = self.doc.len_lines().max(1);
         let digits = total_lines.ilog10() + 1;
         let gutter_padding = 8.0;
@@ -102,20 +128,23 @@ impl CodeEditor {
         });
         let gutter_width = digit_width * digits as f32 + gutter_padding * 2.0;
 
-        let gutter_rect =
-            egui::Rect::from_min_max(rect.min, egui::pos2(rect.min.x + gutter_width, rect.max.y));
-        painter.rect_filled(gutter_rect, 0.0, egui::Color32::from_rgb(30, 30, 30));
+        for (row_idx, row) in galley.rows.iter().enumerate() {
+            let is_current = row_idx == cursor_line;
 
-        let mut y = rect.min.y;
+            if is_current {
+                let highlight_rect = egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x, rect.min.y + row.min_y()),
+                    egui::pos2(rect.max.x, rect.min.y + row.max_y()),
+                );
+                painter.rect_filled(highlight_rect, 0.0, egui::Color32::from_rgb(35, 35, 35));
+            }
 
-        for line_idx in 0..total_lines {
-            let is_current = line_idx == cursor_line;
-
-            let line_number = (line_idx + 1).to_string();
+            // --- Line numbers ---
+            let line_number = (row_idx + 1).to_string();
             let color = if is_current {
-                egui::Color32::WHITE
+                Color32::WHITE
             } else {
-                egui::Color32::from_gray(140)
+                Color32::from_gray(140)
             };
 
             let text_size = ui.fonts_mut(|f| {
@@ -124,26 +153,19 @@ impl CodeEditor {
             });
 
             let x = rect.min.x + gutter_width - gutter_padding - text_size.x;
-
             painter.text(
-                egui::pos2(x, y),
+                egui::pos2(x, rect.min.y + row.min_y()),
                 egui::Align2::LEFT_TOP,
                 line_number,
                 font_id.clone(),
                 color,
             );
-
-            y += line_height;
         }
 
         // --- Render text ---
-        let source = self.doc.to_string();
-        let layout_job = highlight(ui.ctx(), self, &source);
-        let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
-
         let text_x = rect.min.x + gutter_width + 6.0;
         let pos = egui::pos2(text_x, rect.min.y);
-        painter.galley(pos, galley, Color32::WHITE);
+        painter.galley(pos, galley.clone(), Color32::WHITE);
 
         let time = ui.input(|i| i.time);
 
@@ -171,12 +193,13 @@ impl CodeEditor {
                         .x
                     });
 
-                let cursor_y = rect.min.y + cursor_line as f32 * line_height;
+                let cursor_height = galley.rows[cursor_line].height();
+                let cursor_y = rect.min.y + galley.rows[cursor_line].min_y();
 
                 painter.line_segment(
                     [
                         egui::pos2(cursor_x, cursor_y),
-                        egui::pos2(cursor_x, cursor_y + line_height),
+                        egui::pos2(cursor_x, cursor_y + cursor_height),
                     ],
                     egui::Stroke::new(1.0, egui::Color32::WHITE),
                 );
