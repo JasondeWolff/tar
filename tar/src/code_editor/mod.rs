@@ -391,7 +391,7 @@ impl CodeEditor {
             let events = ui.input(|i| i.filtered_events(&event_filter));
             for event in events {
                 match event {
-                    egui::Event::Text(text) => {
+                    egui::Event::Text(text) | egui::Event::Paste(text) => {
                         if let Some(selection) = &self.selection {
                             if selection.start != selection.end {
                                 self.doc.remove(selection.start..selection.end);
@@ -623,22 +623,6 @@ impl CodeEditor {
                                 self.cursor = selection.start;
                             }
                         }
-
-                        self.selection = None;
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Paste(text) => {
-                        if let Some(selection) = &self.selection {
-                            if selection.start != selection.end {
-                                self.doc.remove(selection.start..selection.end);
-                                self.cursor = selection.start;
-                            }
-                        }
-
-                        println!("PASTE!");
-                        self.doc.insert(self.cursor, &text);
-                        self.cursor += text.chars().count();
 
                         self.selection = None;
                         self.desired_column = None;
