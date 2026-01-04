@@ -9,7 +9,12 @@ use winit::{
 
 use crate::{
     egui_util::{self, EguiPass},
-    wgpu_util::{self, encode_blit, BlitPassParameters, PipelineDatabase},
+    wgpu_util::{
+        blit_pass::{encode_blit, BlitPassParameters},
+        context_wrapper::ContextWrapper,
+        surface_wrapper::SurfaceWrapper,
+        PipelineDatabase,
+    },
 };
 
 use time::{macros::format_description, OffsetDateTime};
@@ -223,8 +228,8 @@ pub trait RenderPipeline<A>: 'static + Sized {
 
 struct RenderPipelineState<A, R: RenderPipeline<A>> {
     window: Arc<Window>,
-    surface: wgpu_util::Surface,
-    context: wgpu_util::Context,
+    surface: SurfaceWrapper,
+    context: ContextWrapper,
     render_pipeline: R,
     color_target: wgpu::Texture,
     egui_pass: EguiPass,
@@ -235,11 +240,11 @@ struct RenderPipelineState<A, R: RenderPipeline<A>> {
 
 impl<A, R: RenderPipeline<A>> RenderPipelineState<A, R> {
     pub async fn from_window(
-        mut surface: wgpu_util::Surface,
+        mut surface: SurfaceWrapper,
         window: Arc<Window>,
         no_gpu_validation: bool,
     ) -> Self {
-        let context = wgpu_util::Context::init_with_window(
+        let context = ContextWrapper::init_with_window(
             &mut surface,
             window.clone(),
             R::optional_features(),
@@ -408,7 +413,7 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
         let surface = if let Some(rp_state) = self.rp_state.take() {
             rp_state.surface
         } else {
-            wgpu_util::Surface::new()
+            SurfaceWrapper::new()
         };
 
         #[allow(unused_mut)]

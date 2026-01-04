@@ -52,6 +52,7 @@ panic-log = { version = "0.3.0" }
 # rkyv = { version = "0.8.9", default-features = false, features = ["size_64", "std", "validation"] }
 # rmpv = { version = "1.0.1", default-features = false, features = ["with-serde"] }
 # rmp-serde = { version = "1.1.2", default-features = false }
+ropey = "1.6.1"
 # serde = { version = "1.0.216", default-features = false, features = ["derive", "rc", "std"] }
 # serde_json = { version = "1.0.114", default-features = false, features = ["std"] }
 # shaderc = { version = "0.8", default-features = false }
@@ -66,6 +67,8 @@ time = { version = "0.3.44", default-features = false, features = [
     "parsing",
     "serde",
 ] }
+tree-sitter = "0.20.6"
+tree-sitter-wgsl = "0.0.6"
 type-map = { version = "0.5.0", default-features = false }
 # uuid = { version = "1.12.1", default-features = false, features = ["v4"] }
 # wasm-bindgen = { version = "0.2.84", default-features = true }

@@ -1,23 +1,23 @@
 use std::sync::Arc;
 
-use egui_code_editor::{CodeEditor, ColorTheme, Completer, Syntax};
-
-use crate::app::{Runtime, Static};
+use crate::{
+    app::{Runtime, Static},
+    code_editor::CodeEditor,
+};
 
 pub mod app;
+pub mod code_editor;
 pub mod egui_util;
 pub mod wgpu_util;
 
 pub struct App {
-    code: String,
-    completer: Completer,
+    code: CodeEditor,
 }
 
 impl App {
     fn new() -> Self {
         Self {
-            code: String::new(),
-            completer: Completer::new_with_syntax(&Syntax::rust()),
+            code: CodeEditor::new("let pos: vec2 = vec2(0.0);"),
         }
     }
 }
@@ -62,14 +62,16 @@ impl app::RenderPipeline<App> for RenderPipeline {
         egui::CentralPanel::default().show(egui_ctx, |ui| {
             // ui.add(egui::TextEdit::multiline(&mut self.code).desired_rows(30));
 
-            CodeEditor::default()
-                .id_source("code editor")
-                .with_rows(12)
-                .with_fontsize(14.0)
-                .with_theme(ColorTheme::GITHUB_DARK)
-                .with_syntax(Syntax::rust())
-                .with_numlines(true)
-                .show_with_completer(ui, &mut app.code, &mut app.completer);
+            app.code.ui(ui);
+
+            // CodeEditor::default()
+            //     .id_source("code editor")
+            //     .with_rows(12)
+            //     .with_fontsize(14.0)
+            //     .with_theme(ColorTheme::GITHUB_DARK)
+            //     .with_syntax(Syntax::rust())
+            //     .with_numlines(true)
+            //     .show_with_completer(ui, &mut app.code, &mut app.completer);
         });
     }
 }
