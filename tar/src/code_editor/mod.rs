@@ -39,12 +39,10 @@ fn line_len_without_newline(line: ropey::RopeSlice) -> usize {
 
 pub struct CodeEditor {
     pub doc: Rope,
-    pub cursor: usize, // char index
+    pub cursor: usize,
     cursor_blink_offset: f64,
     desired_column: Option<usize>,
     pub selection: Option<Range<usize>>,
-
-    scroll: egui::Vec2,
 
     theme: ColorTheme,
     syntax: Syntax,
@@ -59,7 +57,6 @@ impl CodeEditor {
             cursor_blink_offset: 0.0,
             desired_column: None,
             selection: None,
-            scroll: egui::Vec2::ZERO,
             theme,
             syntax,
             fontsize: 14.0,
@@ -87,7 +84,6 @@ impl CodeEditor {
 
         // --- Allocate base rect ---
         let font_id = egui::FontId::monospace(self.fontsize);
-        let line_height = ui.fonts_mut(|f| f.row_height(&font_id));
 
         let mut width = ui.available_width();
         // Estimate max line width (cheap but effective)
