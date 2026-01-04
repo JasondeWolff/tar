@@ -78,6 +78,18 @@ impl CodeEditor {
         // --- Render background ---
         painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(25, 25, 25));
 
+        // --- Render active line highlight ---
+        let (cursor_line, _) = char_to_line_col(&self.doc, self.cursor);
+        let current_line_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.min.x, rect.min.y + cursor_line as f32 * line_height),
+            egui::pos2(
+                rect.max.x,
+                rect.min.y + (cursor_line + 1) as f32 * line_height,
+            ),
+        );
+
+        painter.rect_filled(current_line_rect, 0.0, egui::Color32::from_rgb(35, 35, 35));
+
         // --- Render line numbers ---
         let total_lines = self.doc.len_lines().max(1);
         let digits = total_lines.ilog10() + 1;
@@ -95,13 +107,19 @@ impl CodeEditor {
         painter.rect_filled(gutter_rect, 0.0, egui::Color32::from_rgb(30, 30, 30));
 
         let mut y = rect.min.y;
-        let number_color = egui::Color32::from_gray(140);
 
         for line_idx in 0..total_lines {
+            let is_current = line_idx == cursor_line;
+
             let line_number = (line_idx + 1).to_string();
+            let color = if is_current {
+                egui::Color32::WHITE
+            } else {
+                egui::Color32::from_gray(140)
+            };
 
             let text_size = ui.fonts_mut(|f| {
-                f.layout_no_wrap(line_number.clone(), font_id.clone(), number_color)
+                f.layout_no_wrap(line_number.clone(), font_id.clone(), color)
                     .size()
             });
 
@@ -112,7 +130,7 @@ impl CodeEditor {
                 egui::Align2::LEFT_TOP,
                 line_number,
                 font_id.clone(),
-                number_color,
+                color,
             );
 
             y += line_height;
