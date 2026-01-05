@@ -88,7 +88,10 @@ impl From<char> for TokenType {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+pub trait SyntaxFormatter {
+    fn format(&self, source: String) -> String;
+}
+
 /// Rules for highlighting.
 pub struct Syntax {
     pub language: &'static str,
@@ -99,6 +102,7 @@ pub struct Syntax {
     pub keywords: BTreeSet<&'static str>,
     pub types: BTreeSet<&'static str>,
     pub special: BTreeSet<&'static str>,
+    pub formatter: Box<dyn SyntaxFormatter>,
 }
 
 impl Default for Syntax {
@@ -200,21 +204,6 @@ impl Syntax {
             self.special.contains(&word)
         } else {
             self.special.contains(word.to_ascii_uppercase().as_str())
-        }
-    }
-}
-
-impl Syntax {
-    pub fn simple(comment: &'static str) -> Self {
-        Syntax {
-            language: "",
-            case_sensitive: false,
-            comment,
-            comment_multiline: [comment; 2],
-            hyperlinks: BTreeSet::new(),
-            keywords: BTreeSet::new(),
-            types: BTreeSet::new(),
-            special: BTreeSet::new(),
         }
     }
 }

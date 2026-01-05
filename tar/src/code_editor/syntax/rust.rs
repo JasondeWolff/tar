@@ -1,5 +1,14 @@
+use crate::code_editor::syntax::SyntaxFormatter;
+
 use super::Syntax;
 use std::collections::BTreeSet;
+
+struct Formatter;
+impl SyntaxFormatter for Formatter {
+    fn format(&self, source: String) -> String {
+        source
+    }
+}
 
 impl Syntax {
     pub fn rust() -> Self {
@@ -83,6 +92,7 @@ impl Syntax {
                 "Weak",
             ]),
             special: BTreeSet::from(["Self", "static", "true", "false"]),
+            formatter: Box::new(Formatter),
         }
     }
 }
