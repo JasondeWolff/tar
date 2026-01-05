@@ -73,8 +73,29 @@ fn safe_char_to_line(doc: &Rope, char_idx: usize) -> usize {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Edit {
+    pub range: std::ops::Range<usize>, // range BEFORE edit
+    pub removed: String,               // text removed
+    pub inserted: String,              // text inserted
+
+    pub cursor_before: usize,
+    pub cursor_after: usize,
+
+    pub selection_before: Option<std::ops::Range<usize>>,
+    pub selection_after: Option<std::ops::Range<usize>>,
+}
+
+#[derive(Default)]
+pub struct EditStack {
+    undo: Vec<Edit>,
+    redo: Vec<Edit>,
+}
+
 pub struct CodeEditor {
     pub doc: Rope,
+    edit_stack: EditStack,
+
     pub cursor: usize,
     cursor_blink_offset: f64,
     desired_column: Option<usize>,
@@ -90,6 +111,7 @@ impl CodeEditor {
     pub fn new(text: &str, theme: ColorTheme, syntax: Syntax) -> Self {
         Self {
             doc: Rope::from_str(text),
+            edit_stack: EditStack::default(),
             cursor: 0,
             cursor_blink_offset: 0.0,
             desired_column: None,
@@ -393,6 +415,10 @@ impl CodeEditor {
             for event in events {
                 match event {
                     egui::Event::Text(text) => {
+                        if text.is_empty() {
+                            continue;
+                        }
+
                         if key_modifiers.ctrl {
                             #[cfg(target_os = "android")]
                             match text.as_str() {
@@ -406,17 +432,36 @@ impl CodeEditor {
                                 _ => {}
                             }
                         } else {
-                            if let Some(selection) = &self.selection {
-                                if selection.start != selection.end {
-                                    self.doc.remove(selection.start..selection.end);
-                                    self.cursor = selection.start;
+                            let selection_before = self.selection.clone();
+                            let cursor_before = self.cursor;
+
+                            let (range, removed) = if let Some(sel) = &self.selection {
+                                if sel.start != sel.end {
+                                    let removed = self.doc.slice(sel.clone()).to_string();
+                                    (sel.clone(), removed)
+                                } else {
+                                    (self.cursor..self.cursor, String::new())
                                 }
-                            }
+                            } else {
+                                (self.cursor..self.cursor, String::new())
+                            };
 
-                            self.doc.insert(self.cursor, &text);
-                            self.cursor += text.chars().count();
+                            let cursor_after = range.start + text.chars().count();
 
-                            self.selection = None;
+                            let edit = Edit {
+                                range,
+                                removed,
+                                inserted: text.clone(),
+
+                                cursor_before,
+                                cursor_after,
+
+                                selection_before,
+                                selection_after: None,
+                            };
+
+                            self.apply_edit(edit);
+
                             self.desired_column = None;
                             self.cursor_blink_offset = time;
                         }
@@ -426,15 +471,45 @@ impl CodeEditor {
                         pressed: true,
                         ..
                     } => {
-                        let (line, _) = char_to_line_col(&self.doc, self.cursor);
+                        // --- capture state before ---
+                        let selection_before = self.selection.clone();
+                        let cursor_before = self.cursor;
+
+                        // --- determine replacement range ---
+                        let (range, removed) = if let Some(sel) = &self.selection {
+                            if sel.start != sel.end {
+                                let removed = self.doc.slice(sel.clone()).to_string();
+                                (sel.clone(), removed)
+                            } else {
+                                (self.cursor..self.cursor, String::new())
+                            }
+                        } else {
+                            (self.cursor..self.cursor, String::new())
+                        };
+
+                        // --- compute auto-indent ---
+                        let line = self.doc.char_to_line(range.start);
                         let line_text = self.doc.line(line).to_string();
                         let indent = leading_whitespace(&line_text);
 
-                        let insert_text = format!("\n{}", indent);
-                        self.doc.insert(self.cursor, &insert_text);
-                        self.cursor += insert_text.chars().count();
+                        let inserted = format!("\n{}", indent);
+                        let cursor_after = range.start + inserted.chars().count();
 
-                        self.selection = None;
+                        // --- build undoable edit ---
+                        let edit = Edit {
+                            range,
+                            removed,
+                            inserted,
+
+                            cursor_before,
+                            cursor_after,
+
+                            selection_before,
+                            selection_after: None, // Enter clears selection
+                        };
+
+                        self.apply_edit(edit);
+
                         self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
@@ -443,17 +518,46 @@ impl CodeEditor {
                         pressed: true,
                         ..
                     } => {
-                        if let Some(selection) = &self.selection {
-                            if selection.start != selection.end {
-                                self.doc.remove(selection.start..selection.end);
-                                self.cursor = selection.start;
+                        // --- capture state before ---
+                        let selection_before = self.selection.clone();
+                        let cursor_before = self.cursor;
+
+                        // --- determine deletion range ---
+                        let (range, removed) = if let Some(sel) = &self.selection {
+                            if sel.start != sel.end {
+                                let removed = self.doc.slice(sel.clone()).to_string();
+                                (sel.clone(), removed)
+                            } else if self.cursor > 0 {
+                                let range = (self.cursor - 1)..self.cursor;
+                                let removed = self.doc.slice(range.clone()).to_string();
+                                (range, removed)
+                            } else {
+                                return;
                             }
                         } else if self.cursor > 0 {
-                            self.doc.remove((self.cursor - 1)..self.cursor);
-                            self.cursor = self.cursor.saturating_sub(1);
-                        }
+                            let range = (self.cursor - 1)..self.cursor;
+                            let removed = self.doc.slice(range.clone()).to_string();
+                            (range, removed)
+                        } else {
+                            return;
+                        };
 
-                        self.selection = None;
+                        let cursor_after = range.start;
+
+                        let edit = Edit {
+                            range,
+                            removed,
+                            inserted: String::new(),
+
+                            cursor_before,
+                            cursor_after,
+
+                            selection_before,
+                            selection_after: None,
+                        };
+
+                        self.apply_edit(edit);
+
                         self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
@@ -462,98 +566,95 @@ impl CodeEditor {
                         pressed: true,
                         ..
                     } => {
-                        if let Some(selection) = &self.selection {
-                            if selection.start != selection.end {
-                                self.doc.remove(selection.start..selection.end);
-                                self.cursor = selection.start;
+                        // --- capture state before ---
+                        let selection_before = self.selection.clone();
+                        let cursor_before = self.cursor;
+
+                        // --- determine deletion range ---
+                        let (range, removed) = if let Some(sel) = &self.selection {
+                            if sel.start != sel.end {
+                                let removed = self.doc.slice(sel.clone()).to_string();
+                                (sel.clone(), removed)
+                            } else if self.cursor < self.doc.len_chars() {
+                                let range = self.cursor..(self.cursor + 1);
+                                let removed = self.doc.slice(range.clone()).to_string();
+                                (range, removed)
+                            } else {
+                                return;
                             }
                         } else if self.cursor < self.doc.len_chars() {
-                            self.doc.remove(self.cursor..self.cursor + 1);
-                        }
+                            let range = self.cursor..(self.cursor + 1);
+                            let removed = self.doc.slice(range.clone()).to_string();
+                            (range, removed)
+                        } else {
+                            return;
+                        };
 
-                        self.selection = None;
+                        let cursor_after = range.start;
+
+                        let edit = Edit {
+                            range,
+                            removed,
+                            inserted: String::new(),
+
+                            cursor_before,
+                            cursor_after,
+
+                            selection_before,
+                            selection_after: None,
+                        };
+
+                        self.apply_edit(edit);
+
                         self.desired_column = None;
                         self.cursor_blink_offset = time;
                     }
                     egui::Event::Key {
                         key: egui::Key::Tab,
                         pressed: true,
-                        modifiers,
                         ..
                     } => {
-                        let shift = modifiers.shift;
+                        const TAB_WIDTH: usize = 4;
 
-                        if let Some(selection) = self.selection.clone() {
-                            let line_range = selection_line_range(&self.doc, &selection);
+                        let line = self.doc.char_to_line(self.cursor);
+                        let line_start = self.doc.line_to_char(line);
+                        let column = self.cursor - line_start;
+                        let spaces = TAB_WIDTH - (column % TAB_WIDTH);
 
-                            if shift {
-                                // ---- SHIFT+TAB : UNINDENT ----
-                                let mut removed_total = 0;
-
-                                for line in line_range.clone() {
-                                    let line_start = self.doc.line_to_char(line);
-                                    let line_text = self.doc.line(line);
-
-                                    let remove_count = line_text
-                                        .chars()
-                                        .take_while(|c| *c == ' ')
-                                        .take(INDENT_WIDTH)
-                                        .count();
-
-                                    if remove_count > 0 {
-                                        self.doc.remove(line_start..line_start + remove_count);
-                                        removed_total += remove_count;
-                                    }
-                                }
-
-                                self.cursor = self.cursor.saturating_sub(removed_total);
-                            } else {
-                                // ---- TAB : INDENT ----
-                                let mut added_total = 0;
-
-                                for line in line_range.clone() {
-                                    let line_start = self.doc.line_to_char(line);
-                                    self.doc.insert(line_start, INDENT);
-                                    added_total += INDENT_WIDTH;
-                                }
-
-                                self.cursor += added_total;
-                            }
-
-                            // Update selection to stay covering same lines
-                            let start_line = self.doc.char_to_line(selection.start);
-                            let end_line = safe_char_to_line(&self.doc, selection.end);
-
-                            let new_start = self.doc.line_to_char(start_line);
-                            let new_end = self
-                                .doc
-                                .line_to_char(end_line + 1)
-                                .min(self.doc.len_chars());
-
-                            self.selection = Some(new_start..new_end);
-                        } else {
-                            // ---- No selection ----
-                            if shift {
-                                // Unindent current line
-                                let line = self.doc.char_to_line(self.cursor);
-                                let line_start = self.doc.line_to_char(line);
-                                let line_text = self.doc.line(line);
-
-                                let remove_count = line_text
-                                    .chars()
-                                    .take_while(|c| *c == ' ')
-                                    .take(INDENT_WIDTH)
-                                    .count();
-
-                                if remove_count > 0 {
-                                    self.doc.remove(line_start..line_start + remove_count);
-                                    self.cursor = self.cursor.saturating_sub(remove_count);
-                                }
-                            } else {
-                                self.doc.insert(self.cursor, INDENT);
-                                self.cursor += INDENT_WIDTH;
-                            }
+                        let mut text = String::new();
+                        for _ in 0..spaces {
+                            text += " ";
                         }
+
+                        let selection_before = self.selection.clone();
+                        let cursor_before = self.cursor;
+
+                        let (range, removed) = if let Some(sel) = &self.selection {
+                            if sel.start != sel.end {
+                                let removed = self.doc.slice(sel.clone()).to_string();
+                                (sel.clone(), removed)
+                            } else {
+                                (self.cursor..self.cursor, String::new())
+                            }
+                        } else {
+                            (self.cursor..self.cursor, String::new())
+                        };
+
+                        let cursor_after = range.start + text.chars().count();
+
+                        let edit = Edit {
+                            range,
+                            removed,
+                            inserted: text.clone(),
+
+                            cursor_before,
+                            cursor_after,
+
+                            selection_before,
+                            selection_after: None,
+                        };
+
+                        self.apply_edit(edit);
 
                         self.desired_column = None;
                         self.cursor_blink_offset = time;
@@ -622,6 +723,36 @@ impl CodeEditor {
                         self.selection = None;
                         self.cursor_blink_offset = time;
                     }
+                    egui::Event::Key {
+                        key: egui::Key::Z,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => {
+                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
+                            self.undo(ui);
+                        }
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::Y,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => {
+                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
+                            self.redo(ui);
+                        }
+                    }
+                    egui::Event::Key {
+                        key: egui::Key::S,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => {
+                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
+                            self.format();
+                        }
+                    }
                     egui::Event::Copy => {
                         self.copy(ui);
                     }
@@ -637,6 +768,19 @@ impl CodeEditor {
         }
     }
 
+    fn apply_edit(&mut self, edit: Edit) {
+        // Apply edit
+        self.doc.remove(edit.range.clone());
+        self.doc.insert(edit.range.start, &edit.inserted);
+
+        self.cursor = edit.cursor_after;
+        self.selection = edit.selection_after.clone();
+
+        // Push undo
+        self.edit_stack.undo.push(edit);
+        self.edit_stack.redo.clear();
+    }
+
     fn copy(&self, ui: &mut egui::Ui) {
         if let Some(text) = self.selected_text() {
             cfg_if::cfg_if! {
@@ -650,42 +794,162 @@ impl CodeEditor {
     }
 
     fn cut(&mut self, ui: &mut egui::Ui) {
-        if let Some(selection) = &self.selection {
-            if selection.start != selection.end {
-                if let Some(text) = self.selected_text() {
-                    cfg_if::cfg_if! {
-                        if #[cfg(target_os = "android")] {
-                            android_clipboard::set_text(text);
-                        } else {
-                            ui.ctx().copy_text(text.clone());
-                        }
-                    }
-                }
+        let Some(selection) = self.selection.clone() else {
+            return;
+        };
 
-                self.doc.remove(selection.start..selection.end);
-                self.cursor = selection.start;
+        if selection.start == selection.end {
+            return;
+        }
+
+        // --- Copy to clipboard ---
+        if let Some(text) = self.selected_text() {
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "android")] {
+                    android_clipboard::set_text(text.clone());
+                } else {
+                    ui.ctx().copy_text(text.clone());
+                }
             }
         }
 
-        self.selection = None;
+        // --- Capture state before ---
+        let selection_before = self.selection.clone();
+        let cursor_before = self.cursor;
+
+        // --- Capture removed text ---
+        let removed = self.doc.slice(selection.clone()).to_string();
+
+        let cursor_after = selection.start;
+
+        let edit = Edit {
+            range: selection.clone(),
+            removed,
+            inserted: String::new(),
+
+            cursor_before,
+            cursor_after,
+
+            selection_before,
+            selection_after: None,
+        };
+
+        self.apply_edit(edit);
+
         self.desired_column = None;
         self.cursor_blink_offset = ui.input(|i| i.time);
     }
 
     fn paste(&mut self, ui: &mut egui::Ui, text: String) {
-        if let Some(selection) = &self.selection {
-            if selection.start != selection.end {
-                self.doc.remove(selection.start..selection.end);
-                self.cursor = selection.start;
-            }
+        if text.is_empty() {
+            return;
         }
 
-        self.doc.insert(self.cursor, &text);
-        self.cursor += text.chars().count();
+        let selection_before = self.selection.clone();
+        let cursor_before = self.cursor;
 
-        self.selection = None;
+        // --- Determine replacement range ---
+        let (range, removed) = if let Some(sel) = &self.selection {
+            if sel.start != sel.end {
+                let removed = self.doc.slice(sel.clone()).to_string();
+                (sel.clone(), removed)
+            } else {
+                (self.cursor..self.cursor, String::new())
+            }
+        } else {
+            (self.cursor..self.cursor, String::new())
+        };
+
+        let cursor_after = range.start + text.chars().count();
+
+        let edit = Edit {
+            range,
+            removed,
+            inserted: text,
+
+            cursor_before,
+            cursor_after,
+
+            selection_before,
+            selection_after: None,
+        };
+
+        self.apply_edit(edit);
+
         self.desired_column = None;
         self.cursor_blink_offset = ui.input(|i| i.time);
+    }
+
+    fn undo(&mut self, ui: &mut egui::Ui) {
+        let Some(edit) = self.edit_stack.undo.pop() else {
+            return;
+        };
+
+        // Revert
+        let revert = Edit {
+            range: edit.range.start..(edit.range.start + edit.inserted.chars().count()),
+            removed: edit.inserted.clone(),
+            inserted: edit.removed.clone(),
+
+            cursor_before: edit.cursor_after,
+            cursor_after: edit.cursor_before,
+
+            selection_before: edit.selection_after.clone(),
+            selection_after: edit.selection_before.clone(),
+        };
+
+        self.doc.remove(revert.range.clone());
+        self.doc.insert(revert.range.start, &revert.inserted);
+
+        self.cursor = revert.cursor_after;
+        self.selection = revert.selection_after.clone();
+
+        self.edit_stack.redo.push(edit);
+
+        self.cursor_blink_offset = ui.input(|i| i.time);
+    }
+
+    fn redo(&mut self, ui: &mut egui::Ui) {
+        let Some(edit) = self.edit_stack.redo.pop() else {
+            return;
+        };
+
+        self.doc.remove(edit.range.clone());
+        self.doc.insert(edit.range.start, &edit.inserted);
+
+        self.cursor = edit.cursor_after;
+        self.selection = edit.selection_after.clone();
+
+        self.edit_stack.undo.push(edit);
+
+        self.cursor_blink_offset = ui.input(|i| i.time);
+    }
+
+    fn format(&mut self) {
+        // Save cursor line & column before formatting
+        let cursor_line = self.doc.char_to_line(self.cursor);
+        let line_start = self.doc.line_to_char(cursor_line);
+        let cursor_col = self.cursor - line_start;
+
+        // Format source
+        let source = self.doc.to_string();
+        let formatted = self.syntax.formatter.format(source);
+
+        // Replace doc
+        self.doc = Rope::from_str(&formatted);
+
+        // Clamp line
+        let new_line = cursor_line.min(self.doc.len_lines() - 1);
+
+        // Clamp column to line length
+        let line_len = self.doc.line(new_line).len_chars();
+        let new_col = cursor_col.min(line_len);
+
+        // Set cursor
+        self.cursor = self.doc.line_to_char(new_line) + new_col;
+
+        // Clear selection if needed
+        self.selection = None;
     }
 
     fn selected_text(&self) -> Option<String> {
