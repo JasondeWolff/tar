@@ -148,7 +148,7 @@ impl CodeEditor {
         let painter = ui.painter_at(rect);
 
         // --- Render background ---
-        painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(25, 25, 25));
+        painter.rect_filled(rect, 0.0, self.theme.bg());
 
         // --- Render line highlights ---
         let (cursor_line, _) = char_to_line_col(&self.doc, self.cursor);
@@ -250,7 +250,7 @@ impl CodeEditor {
                     egui::pos2(x_end, rect.min.y + row.max_y()),
                 );
 
-                painter.rect_filled(selection_rect, 0.0, Color32::from_rgb(0, 120, 215));
+                painter.rect_filled(selection_rect, 0.0, self.theme.selection());
             }
         }
 
@@ -384,7 +384,7 @@ impl CodeEditor {
                         egui::pos2(cursor_x, cursor_y),
                         egui::pos2(cursor_x, cursor_y + cursor_height),
                     ],
-                    egui::Stroke::new(1.0, egui::Color32::WHITE),
+                    egui::Stroke::new(1.0, self.theme.cursor()),
                 );
             }
 

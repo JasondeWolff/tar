@@ -6,8 +6,8 @@ impl ColorTheme {
     pub const GITHUB_DARK: ColorTheme = ColorTheme {
         name: "Github Dark",
         dark: true,
-        bg: "#0d1117",          // default
-        cursor: "#d29922",      // attention.fg
+        bg: "#0e1116",          // default
+        cursor: "#F2F6FB",      // attention.fg
         selection: "#0c2d6b",   // scale.blue.8
         comments: "#8b949e",    // fg.muted
         functions: "#d2a8ff",   // scale.purple.2

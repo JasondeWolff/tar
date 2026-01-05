@@ -15,14 +15,19 @@ pub struct App {
     code: CodeEditor,
 }
 
+const DEFAULT_CODE: &str = r#"@include tar/common.wgsl
+
+fn main(tex_coords: vec2f) -> vec4f {
+    let color = vec3f(tex_coords, 0.0);
+    
+    return vec4f(color, 1.0);
+}
+"#;
+
 impl App {
     fn new() -> Self {
         Self {
-            code: CodeEditor::new(
-                "let pos: vec2 = vec2(0.0);",
-                ColorTheme::GITHUB_DARK,
-                Syntax::rust(),
-            ),
+            code: CodeEditor::new(DEFAULT_CODE, ColorTheme::GITHUB_DARK, Syntax::wgsl()),
         }
     }
 }

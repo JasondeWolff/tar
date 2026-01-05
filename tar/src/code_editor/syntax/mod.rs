@@ -1,4 +1,5 @@
 pub mod rust;
+pub mod wgsl;
 
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
@@ -80,7 +81,7 @@ impl From<char> for TokenType {
             c if c.is_whitespace() => TokenType::Whitespace(c),
             c if QUOTES.contains(&c) => TokenType::Str(c),
             c if c.is_numeric() => TokenType::Numeric(false),
-            c if c.is_alphabetic() || SEPARATORS.contains(&c) => TokenType::Literal,
+            c if c.is_alphabetic() || SEPARATORS.contains(&c) || c == '@' => TokenType::Literal,
             c if c.is_ascii_punctuation() => TokenType::Punctuation(c),
             _ => TokenType::Unknown,
         }
