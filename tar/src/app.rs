@@ -472,29 +472,6 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
             self.rp_state.as_ref().unwrap().window.request_redraw();
         }
 
-        // event = match event {
-        //     WindowEvent::KeyboardInput {
-        //         device_id,
-        //         event,
-        //         is_synthetic,
-        //     } => {
-        //         //let event = event;
-
-        //         if let keyboard::Key::Named(key) = event.logical_key {
-        //             if key == NamedKey::Control && event.repeat {
-        //                 return;
-        //             }
-        //         }
-
-        //         WindowEvent::KeyboardInput {
-        //             device_id,
-        //             event,
-        //             is_synthetic,
-        //         }
-        //     }
-        //     _ => event,
-        // };
-
         if let Some(rp_state) = &mut self.rp_state {
             rp_state.render_pipeline.window_event(event.clone());
             rp_state
