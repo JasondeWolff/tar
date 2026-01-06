@@ -4,14 +4,17 @@ use crate::{
     app::{Runtime, Static},
     code_editor::{syntax::Syntax, themes::ColorTheme, CodeEditor},
     egui_util::KeyModifiers,
+    time::FpsCounter,
 };
 
 pub mod app;
 pub mod code_editor;
 pub mod egui_util;
+pub mod time;
 pub mod wgpu_util;
 
 pub struct App {
+    fps_counter: FpsCounter,
     code: CodeEditor,
 }
 
@@ -27,6 +30,7 @@ fn main(tex_coords: vec2f) -> vec4f {
 impl App {
     fn new() -> Self {
         Self {
+            fps_counter: FpsCounter::new(),
             code: CodeEditor::new(DEFAULT_CODE, ColorTheme::GITHUB_DARK, Syntax::wgsl()),
         }
     }
@@ -70,6 +74,14 @@ impl app::RenderPipeline<App> for RenderPipeline {
         key_modifiers: &KeyModifiers,
         app: &mut App,
     ) {
+        if app.fps_counter.update() {
+            log::info!(
+                "FPS {} (ms {:.2})",
+                app.fps_counter.fps(),
+                app.fps_counter.ms()
+            );
+        }
+
         egui::CentralPanel::default().show(egui_ctx, |ui| {
             app.code.ui(ui, key_modifiers);
         });
