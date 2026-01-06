@@ -35,8 +35,8 @@ const BLINK_SPEED: f64 = 0.530 * 2.0;
 
 // Touch scrolling
 const TOUCH_SCROLL_SENSITIVITY: f32 = 4.5;
-const TOUCH_SCROLL_SMOOTHING: f32 = 1.5;
-const TOUCH_SCROLL_DAMPING: f32 = 15.0;
+const TOUCH_SCROLL_SMOOTHING: f32 = 20.0;
+const TOUCH_SCROLL_DAMPING: f32 = 5.0;
 const AXIS_LOCK_THRESHOLD: f32 = 6.0;
 
 // ============================================================================
@@ -537,33 +537,33 @@ impl CodeEditor {
             return;
         }
 
-        ui.input(|i| {
-            if let Some(multi_touch) = i.multi_touch() {
-                let raw = multi_touch.translation_delta * TOUCH_SCROLL_SENSITIVITY;
+        if let Some(multi_touch) = ui.input(|i| i.multi_touch()) {
+            let raw = multi_touch.translation_delta * TOUCH_SCROLL_SENSITIVITY;
 
-                // Lock axis once movement exceeds threshold
-                if self.touch_scroll_axis_lock.is_none() && raw.length() > AXIS_LOCK_THRESHOLD {
-                    self.touch_scroll_axis_lock = if raw.y.abs() > raw.x.abs() * 1.3 {
-                        Some(TouchScrollAxis::Vertical)
-                    } else {
-                        Some(TouchScrollAxis::Horizontal)
-                    };
-                }
-
-                let filtered = match &self.touch_scroll_axis_lock {
-                    Some(TouchScrollAxis::Vertical) => egui::vec2(0.0, raw.y),
-                    Some(TouchScrollAxis::Horizontal) => egui::vec2(raw.x, 0.0),
-                    None => raw,
+            // Axis lock logic
+            if self.touch_scroll_axis_lock.is_none() && raw.length() > AXIS_LOCK_THRESHOLD {
+                self.touch_scroll_axis_lock = if raw.y.abs() > raw.x.abs() * 1.3 {
+                    Some(TouchScrollAxis::Vertical)
+                } else {
+                    Some(TouchScrollAxis::Horizontal)
                 };
-
-                self.touch_scroll_velocity = lerp_vec2(
-                    self.touch_scroll_velocity,
-                    filtered,
-                    (1.0 / TOUCH_SCROLL_SMOOTHING) * (delta_time * 60.0),
-                );
-                self.touch_scroll_timestamp = time;
             }
-        });
+
+            let filtered = match &self.touch_scroll_axis_lock {
+                Some(TouchScrollAxis::Vertical) => egui::vec2(0.0, raw.y),
+                Some(TouchScrollAxis::Horizontal) => egui::vec2(raw.x, 0.0),
+                None => raw,
+            };
+
+            // Apply scroll IMMEDIATELY during touch - no smoothing
+            ui.scroll_with_delta(filtered);
+
+            // Track velocity for momentum after release (light smoothing to reduce jitter)
+            let t = 1.0 - (-TOUCH_SCROLL_SMOOTHING * delta_time).exp();
+            self.touch_scroll_velocity = lerp_vec2(self.touch_scroll_velocity, filtered, t);
+
+            self.touch_scroll_timestamp = time;
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -673,17 +673,21 @@ impl CodeEditor {
     }
 
     fn apply_scroll_velocity(&mut self, ui: &mut egui::Ui, delta_time: f32) {
-        if !ui.input(|i| i.pointer.any_down()) {
-            self.touch_scroll_velocity = lerp_vec2(
-                self.touch_scroll_velocity,
-                egui::Vec2::ZERO,
-                (1.0 / TOUCH_SCROLL_DAMPING) * (delta_time * 60.0),
-            );
-            self.touch_scroll_axis_lock = None;
+        // Only apply momentum when NOT actively touching
+        if ui.input(|i| i.pointer.any_down()) {
+            return;
         }
 
-        if self.touch_scroll_velocity != egui::Vec2::ZERO {
+        self.touch_scroll_axis_lock = None;
+
+        // Apply momentum
+        if self.touch_scroll_velocity.length() > 0.5 {
             ui.scroll_with_delta(self.touch_scroll_velocity);
+
+            let decay = (-TOUCH_SCROLL_DAMPING * delta_time).exp();
+            self.touch_scroll_velocity *= decay;
+        } else {
+            self.touch_scroll_velocity = egui::Vec2::ZERO;
         }
     }
 
