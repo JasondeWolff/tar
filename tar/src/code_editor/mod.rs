@@ -37,6 +37,10 @@ fn line_len_without_newline(line: ropey::RopeSlice) -> usize {
     }
 }
 
+fn lerp_vec2(a: egui::Vec2, b: egui::Vec2, t: f32) -> egui::Vec2 {
+    a + (b - a) * t
+}
+
 #[derive(Clone, Debug)]
 pub struct Edit {
     pub range: std::ops::Range<usize>, // range BEFORE edit
@@ -56,6 +60,11 @@ pub struct EditStack {
     redo: Vec<Edit>,
 }
 
+enum TouchScrollAxis {
+    Vertical,
+    Horizontal,
+}
+
 pub struct CodeEditor {
     pub doc: Rope,
     edit_stack: EditStack,
@@ -66,6 +75,10 @@ pub struct CodeEditor {
     desired_column: Option<usize>,
     pub selection: Option<Range<usize>>,
     selection_anchor: Option<usize>,
+
+    touch_scroll_velocity: egui::Vec2,
+    touch_scroll_axis_lock: Option<TouchScrollAxis>,
+    touch_scroll_timestamp: f64,
 
     theme: ColorTheme,
     syntax: Syntax,
@@ -83,6 +96,9 @@ impl CodeEditor {
             desired_column: None,
             selection: None,
             selection_anchor: None,
+            touch_scroll_velocity: egui::Vec2::ZERO,
+            touch_scroll_axis_lock: None,
+            touch_scroll_timestamp: 0.0,
             theme,
             syntax,
             fontsize: 14.0,
@@ -252,6 +268,7 @@ impl CodeEditor {
         painter.galley(pos, galley.clone(), Color32::WHITE);
 
         let time = ui.input(|i| i.time);
+        let delta_time = ui.input(|i| i.stable_dt);
 
         let event_filter = egui::EventFilter {
             tab: true,
@@ -264,48 +281,61 @@ impl CodeEditor {
         let response = response.on_hover_cursor(egui::CursorIcon::Text);
 
         // --- Mouse input ---
-        if ui.input(|i| i.pointer.any_pressed()) {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                // --- Convert pointer position to char index ---
-                let y = pos.y - rect.min.y;
-                let line = (y / line_height) as usize;
+        const TOUCH_SCROLL_SENSITIVITY: f32 = 4.5;
+        const TOUCH_SCROLL_SMOOTHING: f32 = 1.5; // 0 = raw, 1 = no movement
+        const TOUCH_SCROLL_DAMPING: f32 = 15.0;
+        const AXIS_LOCK_THRESHOLD: f32 = 6.0; // pixels
 
-                let line_text = self.doc.line(line);
-                let max_col = line_len_without_newline(line_text);
-                let mut x = 0.0;
-                let mut col = 0;
-
-                for (i, c) in line_text.chars().take(max_col).enumerate() {
-                    let cw = ui.fonts_mut(|f| {
-                        f.layout_no_wrap(c.to_string(), font_id.clone(), Color32::WHITE)
-                            .size()
-                            .x
-                    });
-                    if text_x + x + cw / 2.0 >= pos.x {
-                        col = i;
-                        break;
-                    }
-                    x += cw;
-                    col = i + 1;
-                }
-                col = col.min(max_col);
-
-                let char_idx = self.doc.line_to_char(line) + col;
-
-                // --- Update editor state ---
-                self.cursor = char_idx;
-                self.desired_column = Some(col);
-                self.selection = None; // clear any selection
-                self.selection_anchor = None; // clear drag anchor
-                self.cursor_blink_offset = time;
-
-                ui.memory_mut(|m| m.request_focus(response.id));
+        let double_touch = ui.input(|i| {
+            if let Some(multi_touch) = i.multi_touch() {
+                return multi_touch.num_touches == 2;
             }
-        }
 
-        if response.dragged() {
-            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                let (drag_line, drag_col) = {
+            false
+        });
+
+        if double_touch {
+            ui.input(|i| {
+                if let Some(multi_touch) = i.multi_touch() {
+                    if multi_touch.num_touches == 2 {
+                        // && self.selection.is_none() {
+                        let raw = multi_touch.translation_delta * TOUCH_SCROLL_SENSITIVITY;
+
+                        // Lock axis once
+                        if self.touch_scroll_axis_lock.is_none()
+                            && raw.length() > AXIS_LOCK_THRESHOLD
+                        {
+                            if raw.y.abs() > raw.x.abs() * 1.3 {
+                                self.touch_scroll_axis_lock = Some(TouchScrollAxis::Vertical);
+                            } else {
+                                self.touch_scroll_axis_lock = Some(TouchScrollAxis::Horizontal);
+                            }
+                        }
+
+                        let mut filtered = raw;
+
+                        if let Some(axis) = &self.touch_scroll_axis_lock {
+                            match axis {
+                                TouchScrollAxis::Vertical => filtered.x = 0.0,
+                                TouchScrollAxis::Horizontal => filtered.y = 0.0,
+                            }
+                        }
+
+                        // Smooth
+                        self.touch_scroll_velocity = lerp_vec2(
+                            self.touch_scroll_velocity,
+                            filtered,
+                            (1.0 / TOUCH_SCROLL_SMOOTHING) * (delta_time * 60.0),
+                        );
+
+                        self.touch_scroll_timestamp = time;
+                    }
+                }
+            });
+        } else {
+            if ui.input(|i| i.pointer.any_pressed()) {
+                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                    // --- Convert pointer position to char index ---
                     let y = pos.y - rect.min.y;
                     let line = (y / line_height) as usize;
 
@@ -328,26 +358,81 @@ impl CodeEditor {
                         col = i + 1;
                     }
                     col = col.min(max_col);
-                    (line, col)
-                };
-                let char_idx = self.doc.line_to_char(drag_line) + drag_col;
 
-                // Set anchor on first drag
-                if self.selection_anchor.is_none() {
-                    self.selection_anchor = Some(self.cursor);
+                    let char_idx = self.doc.line_to_char(line) + col;
+
+                    // --- Update editor state ---
+                    self.cursor = char_idx;
+                    self.desired_column = Some(col);
+                    self.selection = None; // clear any selection
+                    self.selection_anchor = None; // clear drag anchor
+                    self.cursor_blink_offset = time;
+
+                    ui.memory_mut(|m| m.request_focus(response.id));
                 }
-
-                let anchor = self.selection_anchor.unwrap();
-                self.selection = Some(anchor.min(char_idx)..anchor.max(char_idx));
-
-                // Update cursor to follow mouse
-                self.update_cursor(char_idx);
-                self.desired_column = Some(drag_col);
-                self.cursor_blink_offset = time;
             }
-        } else {
-            // Clear anchor when not dragging
-            self.selection_anchor = None;
+
+            if response.dragged() && (self.touch_scroll_timestamp + 0.5 < time) {
+                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                    let (drag_line, drag_col) = {
+                        let y = pos.y - rect.min.y;
+                        let line = (y / line_height) as usize;
+
+                        let line_text = self.doc.line(line);
+                        let max_col = line_len_without_newline(line_text);
+                        let mut x = 0.0;
+                        let mut col = 0;
+
+                        for (i, c) in line_text.chars().take(max_col).enumerate() {
+                            let cw = ui.fonts_mut(|f| {
+                                f.layout_no_wrap(c.to_string(), font_id.clone(), Color32::WHITE)
+                                    .size()
+                                    .x
+                            });
+                            if text_x + x + cw / 2.0 >= pos.x {
+                                col = i;
+                                break;
+                            }
+                            x += cw;
+                            col = i + 1;
+                        }
+                        col = col.min(max_col);
+                        (line, col)
+                    };
+                    let char_idx = self.doc.line_to_char(drag_line) + drag_col;
+
+                    // Set anchor on first drag
+                    if self.selection_anchor.is_none() {
+                        self.selection_anchor = Some(self.cursor);
+                    }
+
+                    let anchor = self.selection_anchor.unwrap();
+                    self.selection = Some(anchor.min(char_idx)..anchor.max(char_idx));
+
+                    // Update cursor to follow mouse
+                    self.update_cursor(char_idx);
+                    self.desired_column = Some(drag_col);
+                    self.cursor_blink_offset = time;
+                    self.touch_scroll_velocity = egui::Vec2::ZERO;
+                }
+            } else {
+                // Clear anchor when not dragging
+                self.selection_anchor = None;
+            }
+        }
+
+        if !ui.input(|i| i.pointer.any_down()) {
+            self.touch_scroll_velocity = lerp_vec2(
+                self.touch_scroll_velocity,
+                egui::Vec2::ZERO,
+                (1.0 / TOUCH_SCROLL_DAMPING) * (delta_time * 60.0),
+            );
+
+            self.touch_scroll_axis_lock = None;
+        };
+
+        if self.touch_scroll_velocity != egui::Vec2::ZERO {
+            ui.scroll_with_delta(self.touch_scroll_velocity);
         }
 
         if response.has_focus() {

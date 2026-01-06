@@ -1,9 +1,8 @@
-use egui::Key;
 use log::{Level, LevelFilter};
 use std::{marker::PhantomData, sync::Arc};
 use winit::{
     error::EventLoopError,
-    event::{DeviceEvent, ElementState, WindowEvent},
+    event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{self, NamedKey},
     window::{Window, WindowId},
