@@ -1,5 +1,7 @@
-// Modified version built on-top of Roman Chumaks egui_code_editor (https://github.com/p4ymak/egui_code_editor/)
+// Modified version built on-top of Roman Chumak's egui_code_editor
+// (https://github.com/p4ymak/egui_code_editor/)
 
+use egui::epaint::text::PlacedRow;
 use egui::Color32;
 use ropey::Rope;
 use std::hash::{Hash, Hasher};
@@ -16,6 +18,30 @@ use crate::egui_util::KeyModifiers;
 pub mod highlighting;
 pub mod syntax;
 pub mod themes;
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const TAB_WIDTH: usize = 4;
+const BUFFER_LINES: usize = 10;
+const GUTTER_PADDING: f32 = 8.0;
+const TEXT_PADDING: f32 = 6.0;
+const CURSOR_REVEAL_V_MARGIN_LINES: f32 = 6.0;
+const CURSOR_REVEAL_H_MARGIN: f32 = 40.0;
+
+// Cursor blink
+const BLINK_SPEED: f64 = 0.530 * 2.0;
+
+// Touch scrolling
+const TOUCH_SCROLL_SENSITIVITY: f32 = 4.5;
+const TOUCH_SCROLL_SMOOTHING: f32 = 1.5;
+const TOUCH_SCROLL_DAMPING: f32 = 15.0;
+const AXIS_LOCK_THRESHOLD: f32 = 6.0;
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
 fn char_to_line_col(doc: &Rope, char_idx: usize) -> (usize, usize) {
     let line = doc.char_to_line(char_idx);
@@ -41,17 +67,19 @@ fn lerp_vec2(a: egui::Vec2, b: egui::Vec2, t: f32) -> egui::Vec2 {
     a + (b - a) * t
 }
 
+// ============================================================================
+// Edit & EditStack
+// ============================================================================
+
 #[derive(Clone, Debug)]
 pub struct Edit {
-    pub range: std::ops::Range<usize>, // range BEFORE edit
-    pub removed: String,               // text removed
-    pub inserted: String,              // text inserted
-
+    pub range: Range<usize>,
+    pub removed: String,
+    pub inserted: String,
     pub cursor_before: usize,
     pub cursor_after: usize,
-
-    pub selection_before: Option<std::ops::Range<usize>>,
-    pub selection_after: Option<std::ops::Range<usize>>,
+    pub selection_before: Option<Range<usize>>,
+    pub selection_after: Option<Range<usize>>,
 }
 
 #[derive(Default)]
@@ -60,10 +88,18 @@ pub struct EditStack {
     redo: Vec<Edit>,
 }
 
+// ============================================================================
+// Touch Scroll
+// ============================================================================
+
 enum TouchScrollAxis {
     Vertical,
     Horizontal,
 }
+
+// ============================================================================
+// CodeEditor
+// ============================================================================
 
 pub struct CodeEditor {
     pub doc: Rope,
@@ -111,6 +147,10 @@ impl CodeEditor {
         }
     }
 
+    // ========================================================================
+    // Public API
+    // ========================================================================
+
     pub fn ui(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) {
         egui::ScrollArea::both()
             .id_salt("editor_scroll_area_id")
@@ -120,6 +160,10 @@ impl CodeEditor {
             });
     }
 
+    // ========================================================================
+    // Main Draw Method
+    // ========================================================================
+
     pub fn draw_editor(
         &mut self,
         ui: &mut egui::Ui,
@@ -127,68 +171,121 @@ impl CodeEditor {
         key_modifiers: &KeyModifiers,
     ) {
         let scroll_offset = viewport.min.y;
-
-        if scroll_offset != self.prev_scroll_offset {
-            self.prev_scroll_offset = scroll_offset;
-            self.text_layout_job = None;
-        }
+        self.handle_scroll_change(scroll_offset);
 
         let font_id = egui::FontId::monospace(self.fontsize);
         let line_height = self.line_height(ui, &font_id);
 
+        let (start_line, end_line) = self.calculate_visible_lines(scroll_offset, line_height, ui);
+        let visible_text = self.extract_visible_text(start_line, end_line);
+
+        self.ensure_layout_job(ui, &visible_text);
+        let visible_galley = ui.fonts_mut(|f| f.layout_job(self.text_layout_job.clone().unwrap()));
+
+        let visible_offset_y = start_line as f32 * line_height;
+        let (rect, response, visible_rect) =
+            self.allocate_editor_rect(ui, &font_id, line_height, visible_offset_y);
+
+        let painter = ui.painter_at(visible_rect);
+        let gutter_width = self.calculate_gutter_width(ui, &font_id);
+        let text_x = visible_rect.min.x + gutter_width + TEXT_PADDING;
+
+        // Render
+        self.render_background(&painter, visible_rect);
+        self.render_line_highlights(
+            &painter,
+            ui,
+            &font_id,
+            visible_rect,
+            &visible_galley,
+            start_line,
+            gutter_width,
+        );
+        self.render_selection(&painter, ui, &font_id, rect, text_x, line_height);
+        self.render_text(&painter, text_x, visible_rect, &visible_galley);
+
+        // Input handling
+        let time = ui.input(|i| i.time);
+        let delta_time = ui.input(|i| i.stable_dt);
+
+        self.setup_event_filter(ui, response.id);
+        let response = response.on_hover_cursor(egui::CursorIcon::Text);
+
+        self.handle_touch_scroll(ui, time, delta_time);
+        self.handle_mouse_input(
+            ui,
+            &response,
+            &font_id,
+            visible_rect,
+            text_x,
+            line_height,
+            start_line,
+            time,
+        );
+        self.apply_scroll_velocity(ui, delta_time);
+
+        if response.has_focus() {
+            self.render_cursor(&painter, ui, &font_id, rect, text_x, line_height, time);
+            self.handle_keyboard_input(ui, key_modifiers, time);
+            self.handle_cursor_scroll(ui, rect, line_height);
+        }
+    }
+
+    // ========================================================================
+    // Layout & Measurement Helpers
+    // ========================================================================
+
+    fn handle_scroll_change(&mut self, scroll_offset: f32) {
+        if scroll_offset != self.prev_scroll_offset {
+            self.prev_scroll_offset = scroll_offset;
+            self.text_layout_job = None;
+        }
+    }
+
+    fn calculate_visible_lines(
+        &self,
+        scroll_offset: f32,
+        line_height: f32,
+        ui: &egui::Ui,
+    ) -> (usize, usize) {
         let visible_start_y = scroll_offset.max(0.0);
-        let visible_end_y = visible_start_y + ui.available_height(); // + line_height;
+        let visible_end_y = visible_start_y + ui.available_height();
 
-        // Calculate visible line range with some buffer
-        let buffer_lines = 10;
-        let start_line = ((visible_start_y / line_height) as usize).saturating_sub(buffer_lines);
+        let start_line = ((visible_start_y / line_height) as usize)
+            .saturating_sub(BUFFER_LINES)
+            .min(self.doc.len_lines() - 1);
         let end_line =
-            ((visible_end_y / line_height) as usize + buffer_lines + 1).min(self.doc.len_lines());
+            ((visible_end_y / line_height) as usize + BUFFER_LINES + 1).min(self.doc.len_lines());
 
-        // Extract only visible lines
-        let visible_text = self
-            .doc
+        (start_line, end_line)
+    }
+
+    fn extract_visible_text(&self, start_line: usize, end_line: usize) -> String {
+        self.doc
             .lines()
             .skip(start_line)
             .take(end_line - start_line)
-            .collect::<Vec<ropey::RopeSlice<'_>>>();
-        let visible_text: String = visible_text
-            .iter()
             .flat_map(|slice| slice.chars())
-            .collect();
+            .collect()
+    }
 
-        // Highlight only visible text
+    fn ensure_layout_job(&mut self, ui: &egui::Ui, visible_text: &str) {
         if self.text_layout_job.is_none() {
-            self.text_layout_job = Some(highlight(ui.ctx(), self, &visible_text));
+            self.text_layout_job = Some(highlight(ui.ctx(), self, visible_text));
         }
-        let visible_galley = ui.fonts_mut(|f| f.layout_job(self.text_layout_job.clone().unwrap()));
+    }
 
-        // Calculate total height and offsets
-        let visible_offset_y = start_line as f32 * line_height;
-
-        // --- Allocate base rect ---
-
-        let mut width = ui.available_width();
-        // Estimate max line width (cheap but effective)
-        if self.max_line_width.is_none() {
-            self.max_line_width = Some(
-                self.doc
-                    .lines()
-                    .map(|l| {
-                        ui.fonts_mut(|f| {
-                            f.layout_no_wrap(l.to_string(), font_id.clone(), egui::Color32::WHITE)
-                                .size()
-                                .x
-                        })
-                    })
-                    .fold(0.0, f32::max),
-            );
-        }
-        width = width.max(self.max_line_width.unwrap() + 200.0);
-
+    fn allocate_editor_rect(
+        &mut self,
+        ui: &mut egui::Ui,
+        font_id: &egui::FontId,
+        line_height: f32,
+        visible_offset_y: f32,
+    ) -> (egui::Rect, egui::Response, egui::Rect) {
+        let width = self.calculate_editor_width(ui, font_id);
         let height = line_height * self.doc.len_lines() as f32;
-
         let desired_size = egui::vec2(width, height);
+
         let (rect, mut response) =
             ui.allocate_exact_size(desired_size, egui::Sense::click_and_drag());
         response.flags -= egui::response::Flags::FAKE_PRIMARY_CLICKED;
@@ -196,30 +293,75 @@ impl CodeEditor {
         let mut visible_rect = rect;
         visible_rect.min.y += visible_offset_y;
 
-        let painter = ui.painter_at(visible_rect);
+        (rect, response, visible_rect)
+    }
 
-        // --- Render background ---
-        painter.rect_filled(visible_rect, 0.0, self.theme.bg());
+    fn calculate_editor_width(&mut self, ui: &mut egui::Ui, font_id: &egui::FontId) -> f32 {
+        if self.max_line_width.is_none() {
+            self.max_line_width = Some(
+                self.doc
+                    .lines()
+                    .map(|l| self.measure_text_width(ui, font_id, &l.to_string()))
+                    .fold(0.0, f32::max),
+            );
+        }
+        ui.available_width()
+            .max(self.max_line_width.unwrap() + 200.0)
+    }
 
-        // --- Render line highlights ---
-        let (cursor_line, _) = char_to_line_col(&self.doc, self.cursor);
-
+    fn calculate_gutter_width(&self, ui: &mut egui::Ui, font_id: &egui::FontId) -> f32 {
         let total_lines = self.doc.len_lines().max(1);
         let digits = total_lines.ilog10() + 1;
-        let gutter_padding = 8.0;
+        let digit_width = self.measure_text_width(ui, font_id, "0");
+        digit_width * digits as f32 + GUTTER_PADDING * 2.0
+    }
 
-        let digit_width = ui.fonts_mut(|f| {
-            f.layout_no_wrap("0".to_string(), font_id.clone(), egui::Color32::GRAY)
+    fn measure_text_width(&self, ui: &mut egui::Ui, font_id: &egui::FontId, text: &str) -> f32 {
+        ui.fonts_mut(|f| {
+            f.layout_no_wrap(text.to_string(), font_id.clone(), Color32::WHITE)
                 .size()
                 .x
-        });
-        let gutter_width = digit_width * digits as f32 + gutter_padding * 2.0;
+        })
+    }
 
-        for (row_idx, row) in visible_galley.rows.iter().enumerate() {
-            let row_idx = row_idx + start_line;
+    fn line_height(&self, ui: &mut egui::Ui, font_id: &egui::FontId) -> f32 {
+        let mut test_job = egui::text::LayoutJob::default();
+        test_job.append("Xg", 0.0, self.format_token(TokenType::Literal));
+        let test_galley = ui.fonts_mut(|f| f.layout_job(test_job));
 
-            let is_current = row_idx == cursor_line;
+        if !test_galley.rows.is_empty() {
+            test_galley.rows[0].height()
+        } else {
+            ui.fonts_mut(|f| f.row_height(font_id))
+        }
+    }
 
+    // ========================================================================
+    // Rendering
+    // ========================================================================
+
+    fn render_background(&self, painter: &egui::Painter, rect: egui::Rect) {
+        painter.rect_filled(rect, 0.0, self.theme.bg());
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_line_highlights(
+        &self,
+        painter: &egui::Painter,
+        ui: &mut egui::Ui,
+        font_id: &egui::FontId,
+        visible_rect: egui::Rect,
+        galley: &egui::Galley,
+        start_line: usize,
+        gutter_width: f32,
+    ) {
+        let (cursor_line, _) = char_to_line_col(&self.doc, self.cursor);
+
+        for (row_idx, row) in galley.rows.iter().enumerate() {
+            let line_num = row_idx + start_line;
+            let is_current = line_num == cursor_line;
+
+            // Current line highlight
             if is_current {
                 let highlight_rect = egui::Rect::from_min_max(
                     egui::pos2(visible_rect.min.x, visible_rect.min.y + row.min_y()),
@@ -228,711 +370,649 @@ impl CodeEditor {
                 painter.rect_filled(highlight_rect, 0.0, egui::Color32::from_rgb(35, 35, 35));
             }
 
-            // --- Line numbers ---
-            let line_number = (row_idx + 1).to_string();
-            let color = if is_current {
-                Color32::WHITE
-            } else {
-                Color32::from_gray(140)
-            };
-
-            let text_size = ui.fonts_mut(|f| {
-                f.layout_no_wrap(line_number.clone(), font_id.clone(), color)
-                    .size()
-            });
-
-            let x = visible_rect.min.x + gutter_width - gutter_padding - text_size.x;
-            painter.text(
-                egui::pos2(x, visible_rect.min.y + row.min_y()),
-                egui::Align2::LEFT_TOP,
-                line_number,
-                font_id.clone(),
-                color,
+            // Line number
+            self.render_line_number(
+                painter,
+                ui,
+                font_id,
+                visible_rect,
+                row,
+                line_num,
+                is_current,
+                gutter_width,
             );
         }
+    }
 
-        // --- Render selection background ---
-        let text_x = visible_rect.min.x + gutter_width + 6.0;
+    #[allow(clippy::too_many_arguments)]
+    fn render_line_number(
+        &self,
+        painter: &egui::Painter,
+        ui: &mut egui::Ui,
+        font_id: &egui::FontId,
+        visible_rect: egui::Rect,
+        row: &PlacedRow,
+        line_num: usize,
+        is_current: bool,
+        gutter_width: f32,
+    ) {
+        let line_number = (line_num + 1).to_string();
+        let color = if is_current {
+            Color32::WHITE
+        } else {
+            Color32::from_gray(140)
+        };
+        let text_width = self.measure_text_width(ui, font_id, &line_number);
+        let x = visible_rect.min.x + gutter_width - GUTTER_PADDING - text_width;
 
-        if let Some(selection) = &self.selection {
-            let (start_line, start_col) = char_to_line_col(&self.doc, selection.start);
-            let (end_line, end_col) = char_to_line_col(&self.doc, selection.end);
+        painter.text(
+            egui::pos2(x, visible_rect.min.y + row.min_y()),
+            egui::Align2::LEFT_TOP,
+            line_number,
+            font_id.clone(),
+            color,
+        );
+    }
 
-            for row_idx in start_line..=end_line {
-                if (row_idx as i32 - start_line as i32) < 0 {
-                    continue;
-                }
+    fn render_selection(
+        &self,
+        painter: &egui::Painter,
+        ui: &mut egui::Ui,
+        font_id: &egui::FontId,
+        rect: egui::Rect,
+        text_x: f32,
+        line_height: f32,
+    ) {
+        let Some(selection) = &self.selection else {
+            return;
+        };
 
-                let row_start_char = self.doc.line_to_char(row_idx);
-                let row_end_char =
-                    row_start_char + line_len_without_newline(self.doc.line(row_idx));
+        let (start_line, start_col) = char_to_line_col(&self.doc, selection.start);
+        let (end_line, end_col) = char_to_line_col(&self.doc, selection.end);
 
-                // Compute selection range within this row
-                let sel_start_col = if row_idx == start_line { start_col } else { 0 };
-                let sel_end_col = if row_idx == end_line {
-                    end_col
-                } else {
-                    row_end_char - row_start_char
-                };
+        for line in start_line..=end_line {
+            let line_start_char = self.doc.line_to_char(line);
+            let line_end_char = line_start_char + line_len_without_newline(self.doc.line(line));
 
-                if sel_start_col >= sel_end_col {
-                    continue;
-                }
+            let sel_start_col = if line == start_line { start_col } else { 0 };
+            let sel_end_col = if line == end_line {
+                end_col
+            } else {
+                line_end_char - line_start_char
+            };
 
-                // Compute x coordinates using the font layout
-                let x_start = text_x
-                    + ui.fonts_mut(|f| {
-                        f.layout_no_wrap(
-                            self.doc.line(row_idx).slice(..sel_start_col).to_string(),
-                            font_id.clone(),
-                            Color32::WHITE,
-                        )
-                        .size()
-                        .x
-                    });
-                let x_end = text_x
-                    + ui.fonts_mut(|f| {
-                        f.layout_no_wrap(
-                            self.doc.line(row_idx).slice(..sel_end_col).to_string(),
-                            font_id.clone(),
-                            Color32::WHITE,
-                        )
-                        .size()
-                        .x
-                    });
-
-                let y_start = rect.min.y + row_idx as f32 * line_height;
-
-                let selection_rect = egui::Rect::from_min_max(
-                    egui::pos2(x_start, y_start),
-                    egui::pos2(x_end, y_start + line_height),
-                );
-
-                painter.rect_filled(selection_rect, 0.0, self.theme.selection());
+            if sel_start_col >= sel_end_col {
+                continue;
             }
+
+            let x_start = text_x
+                + self.measure_text_width(
+                    ui,
+                    font_id,
+                    &self.doc.line(line).slice(..sel_start_col).to_string(),
+                );
+            let x_end = text_x
+                + self.measure_text_width(
+                    ui,
+                    font_id,
+                    &self.doc.line(line).slice(..sel_end_col).to_string(),
+                );
+            let y = rect.min.y + line as f32 * line_height;
+
+            let selection_rect = egui::Rect::from_min_max(
+                egui::pos2(x_start, y),
+                egui::pos2(x_end, y + line_height),
+            );
+            painter.rect_filled(selection_rect, 0.0, self.theme.selection());
+        }
+    }
+
+    fn render_text(
+        &self,
+        painter: &egui::Painter,
+        text_x: f32,
+        visible_rect: egui::Rect,
+        galley: &std::sync::Arc<egui::Galley>,
+    ) {
+        painter.galley(
+            egui::pos2(text_x, visible_rect.min.y),
+            galley.clone(),
+            Color32::WHITE,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_cursor(
+        &self,
+        painter: &egui::Painter,
+        ui: &mut egui::Ui,
+        font_id: &egui::FontId,
+        rect: egui::Rect,
+        text_x: f32,
+        line_height: f32,
+        time: f64,
+    ) {
+        let cursor_visible =
+            ((time - self.cursor_blink_offset) % BLINK_SPEED) < (BLINK_SPEED * 0.5);
+        if !cursor_visible {
+            return;
         }
 
-        // --- Render text ---
-        let pos = egui::pos2(text_x, visible_rect.min.y);
-        painter.galley(pos, visible_galley.clone(), Color32::WHITE);
+        let (cursor_line, cursor_col) = char_to_line_col(&self.doc, self.cursor);
+        let cursor_x = text_x
+            + self.measure_text_width(
+                ui,
+                font_id,
+                &self.doc.line(cursor_line).slice(..cursor_col).to_string(),
+            );
+        let cursor_y = rect.min.y + cursor_line as f32 * line_height;
 
-        let time = ui.input(|i| i.time);
-        let delta_time = ui.input(|i| i.stable_dt);
+        painter.line_segment(
+            [
+                egui::pos2(cursor_x, cursor_y),
+                egui::pos2(cursor_x, cursor_y + line_height),
+            ],
+            egui::Stroke::new(1.0, self.theme.cursor()),
+        );
+    }
 
+    // ========================================================================
+    // Input Handling
+    // ========================================================================
+
+    fn setup_event_filter(&self, ui: &mut egui::Ui, id: egui::Id) {
         let event_filter = egui::EventFilter {
             tab: true,
             vertical_arrows: true,
             horizontal_arrows: true,
             escape: false,
         };
-        ui.memory_mut(|mem| mem.set_focus_lock_filter(response.id, event_filter));
+        ui.memory_mut(|mem| mem.set_focus_lock_filter(id, event_filter));
+    }
 
-        let response = response.on_hover_cursor(egui::CursorIcon::Text);
+    fn handle_touch_scroll(&mut self, ui: &mut egui::Ui, time: f64, delta_time: f32) {
+        let double_touch = ui.input(|i| i.multi_touch().is_some_and(|mt| mt.num_touches == 2));
 
-        // --- Mouse input ---
-        const TOUCH_SCROLL_SENSITIVITY: f32 = 4.5;
-        const TOUCH_SCROLL_SMOOTHING: f32 = 1.5; // 0 = raw, 1 = no movement
-        const TOUCH_SCROLL_DAMPING: f32 = 15.0;
-        const AXIS_LOCK_THRESHOLD: f32 = 6.0; // pixels
+        if !double_touch {
+            return;
+        }
 
-        let double_touch = ui.input(|i| {
+        ui.input(|i| {
             if let Some(multi_touch) = i.multi_touch() {
-                return multi_touch.num_touches == 2;
-            }
+                let raw = multi_touch.translation_delta * TOUCH_SCROLL_SENSITIVITY;
 
-            false
-        });
-
-        if double_touch {
-            ui.input(|i| {
-                if let Some(multi_touch) = i.multi_touch() {
-                    if multi_touch.num_touches == 2 {
-                        // && self.selection.is_none() {
-                        let raw = multi_touch.translation_delta * TOUCH_SCROLL_SENSITIVITY;
-
-                        // Lock axis once
-                        if self.touch_scroll_axis_lock.is_none()
-                            && raw.length() > AXIS_LOCK_THRESHOLD
-                        {
-                            if raw.y.abs() > raw.x.abs() * 1.3 {
-                                self.touch_scroll_axis_lock = Some(TouchScrollAxis::Vertical);
-                            } else {
-                                self.touch_scroll_axis_lock = Some(TouchScrollAxis::Horizontal);
-                            }
-                        }
-
-                        let mut filtered = raw;
-
-                        if let Some(axis) = &self.touch_scroll_axis_lock {
-                            match axis {
-                                TouchScrollAxis::Vertical => filtered.x = 0.0,
-                                TouchScrollAxis::Horizontal => filtered.y = 0.0,
-                            }
-                        }
-
-                        // Smooth
-                        self.touch_scroll_velocity = lerp_vec2(
-                            self.touch_scroll_velocity,
-                            filtered,
-                            (1.0 / TOUCH_SCROLL_SMOOTHING) * (delta_time * 60.0),
-                        );
-
-                        self.touch_scroll_timestamp = time;
-                    }
-                }
-            });
-        } else {
-            if ui.input(|i| i.pointer.any_pressed()) {
-                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                    // --- Convert pointer position to char index ---
-                    let y = pos.y - visible_rect.min.y;
-                    let line = ((y / line_height) as usize + start_line)
-                        .min(self.doc.len_lines().saturating_sub(1));
-
-                    let line_text = self.doc.line(line);
-                    let max_col = line_len_without_newline(line_text);
-                    let mut x = 0.0;
-                    let mut col = 0;
-
-                    for (i, c) in line_text.chars().take(max_col).enumerate() {
-                        let cw = ui.fonts_mut(|f| {
-                            f.layout_no_wrap(c.to_string(), font_id.clone(), Color32::WHITE)
-                                .size()
-                                .x
-                        });
-                        if text_x + x + cw / 2.0 >= pos.x {
-                            col = i;
-                            break;
-                        }
-                        x += cw;
-                        col = i + 1;
-                    }
-                    col = col.min(max_col);
-
-                    let char_idx = self.doc.line_to_char(line) + col;
-
-                    // --- Update editor state ---
-                    self.cursor = char_idx;
-                    self.desired_column = Some(col);
-                    self.selection = None; // clear any selection
-                    self.selection_anchor = None; // clear drag anchor
-                    self.cursor_blink_offset = time;
-
-                    ui.memory_mut(|m| m.request_focus(response.id));
-                }
-            }
-
-            if response.dragged() && (self.touch_scroll_timestamp + 0.5 < time) {
-                if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                    let (drag_line, drag_col) = {
-                        let y = pos.y - visible_rect.min.y;
-                        let line = ((y / line_height) as usize + start_line)
-                            .min(self.doc.len_lines().saturating_sub(1));
-
-                        let line_text = self.doc.line(line);
-                        let max_col = line_len_without_newline(line_text);
-                        let mut x = 0.0;
-                        let mut col = 0;
-
-                        for (i, c) in line_text.chars().take(max_col).enumerate() {
-                            let cw = ui.fonts_mut(|f| {
-                                f.layout_no_wrap(c.to_string(), font_id.clone(), Color32::WHITE)
-                                    .size()
-                                    .x
-                            });
-                            if text_x + x + cw / 2.0 >= pos.x {
-                                col = i;
-                                break;
-                            }
-                            x += cw;
-                            col = i + 1;
-                        }
-                        col = col.min(max_col);
-                        (line, col)
+                // Lock axis once movement exceeds threshold
+                if self.touch_scroll_axis_lock.is_none() && raw.length() > AXIS_LOCK_THRESHOLD {
+                    self.touch_scroll_axis_lock = if raw.y.abs() > raw.x.abs() * 1.3 {
+                        Some(TouchScrollAxis::Vertical)
+                    } else {
+                        Some(TouchScrollAxis::Horizontal)
                     };
-                    let char_idx = self.doc.line_to_char(drag_line) + drag_col;
-
-                    // Set anchor on first drag
-                    if self.selection_anchor.is_none() {
-                        self.selection_anchor = Some(self.cursor);
-                    }
-
-                    let anchor = self.selection_anchor.unwrap();
-                    self.selection = Some(anchor.min(char_idx)..anchor.max(char_idx));
-
-                    // Update cursor to follow mouse
-                    self.update_cursor(char_idx);
-                    self.desired_column = Some(drag_col);
-                    self.cursor_blink_offset = time;
-                    self.touch_scroll_velocity = egui::Vec2::ZERO;
                 }
-            } else {
-                // Clear anchor when not dragging
+
+                let filtered = match &self.touch_scroll_axis_lock {
+                    Some(TouchScrollAxis::Vertical) => egui::vec2(0.0, raw.y),
+                    Some(TouchScrollAxis::Horizontal) => egui::vec2(raw.x, 0.0),
+                    None => raw,
+                };
+
+                self.touch_scroll_velocity = lerp_vec2(
+                    self.touch_scroll_velocity,
+                    filtered,
+                    (1.0 / TOUCH_SCROLL_SMOOTHING) * (delta_time * 60.0),
+                );
+                self.touch_scroll_timestamp = time;
+            }
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_mouse_input(
+        &mut self,
+        ui: &mut egui::Ui,
+        response: &egui::Response,
+        font_id: &egui::FontId,
+        visible_rect: egui::Rect,
+        text_x: f32,
+        line_height: f32,
+        start_line: usize,
+        time: f64,
+    ) {
+        let double_touch = ui.input(|i| i.multi_touch().is_some_and(|mt| mt.num_touches == 2));
+        if double_touch {
+            return;
+        }
+
+        // Click to position cursor
+        if ui.input(|i| i.pointer.any_pressed()) {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let (char_idx, col) = self.pos_to_char_index(
+                    ui,
+                    font_id,
+                    pos,
+                    visible_rect,
+                    text_x,
+                    line_height,
+                    start_line,
+                );
+
+                self.cursor = char_idx;
+                self.desired_column = Some(col);
+                self.selection = None;
                 self.selection_anchor = None;
+                self.cursor_blink_offset = time;
+
+                ui.memory_mut(|m| m.request_focus(response.id));
             }
         }
 
+        // Drag to select
+        if response.dragged() && (self.touch_scroll_timestamp + 0.5 < time) {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let (char_idx, col) = self.pos_to_char_index(
+                    ui,
+                    font_id,
+                    pos,
+                    visible_rect,
+                    text_x,
+                    line_height,
+                    start_line,
+                );
+
+                if self.selection_anchor.is_none() {
+                    self.selection_anchor = Some(self.cursor);
+                }
+
+                let anchor = self.selection_anchor.unwrap();
+                self.selection = Some(anchor.min(char_idx)..anchor.max(char_idx));
+                self.update_cursor(char_idx);
+                self.desired_column = Some(col);
+                self.cursor_blink_offset = time;
+                self.touch_scroll_velocity = egui::Vec2::ZERO;
+            }
+        } else {
+            self.selection_anchor = None;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn pos_to_char_index(
+        &self,
+        ui: &mut egui::Ui,
+        font_id: &egui::FontId,
+        pos: egui::Pos2,
+        visible_rect: egui::Rect,
+        text_x: f32,
+        line_height: f32,
+        start_line: usize,
+    ) -> (usize, usize) {
+        let y = pos.y - visible_rect.min.y;
+        let line =
+            ((y / line_height) as usize + start_line).min(self.doc.len_lines().saturating_sub(1));
+
+        let line_text = self.doc.line(line);
+        let max_col = line_len_without_newline(line_text);
+
+        let mut x = 0.0;
+        let mut col = 0;
+
+        for (i, c) in line_text.chars().take(max_col).enumerate() {
+            let char_width = self.measure_text_width(ui, font_id, &c.to_string());
+            if text_x + x + char_width / 2.0 >= pos.x {
+                col = i;
+                break;
+            }
+            x += char_width;
+            col = i + 1;
+        }
+
+        let col = col.min(max_col);
+        let char_idx = self.doc.line_to_char(line) + col;
+
+        (char_idx, col)
+    }
+
+    fn apply_scroll_velocity(&mut self, ui: &mut egui::Ui, delta_time: f32) {
         if !ui.input(|i| i.pointer.any_down()) {
             self.touch_scroll_velocity = lerp_vec2(
                 self.touch_scroll_velocity,
                 egui::Vec2::ZERO,
                 (1.0 / TOUCH_SCROLL_DAMPING) * (delta_time * 60.0),
             );
-
             self.touch_scroll_axis_lock = None;
-        };
+        }
 
         if self.touch_scroll_velocity != egui::Vec2::ZERO {
             ui.scroll_with_delta(self.touch_scroll_velocity);
         }
+    }
 
-        if response.has_focus() {
-            // --- Cursor ---
-            const BLINK_SPEED: f64 = 0.530 * 2.0;
-            let cursor_visible =
-                ((time - self.cursor_blink_offset) % BLINK_SPEED) < (BLINK_SPEED * 0.5);
+    fn handle_cursor_scroll(&mut self, ui: &mut egui::Ui, rect: egui::Rect, line_height: f32) {
+        if !self.cursor_request_focus {
+            return;
+        }
 
-            let (cursor_line, cursor_col) = char_to_line_col(&self.doc, self.cursor);
-            let cursor_x = text_x
-                + ui.fonts_mut(|f| {
-                    f.layout_no_wrap(
-                        self.doc.line(cursor_line).slice(..cursor_col).to_string(),
-                        font_id.clone(),
-                        egui::Color32::WHITE,
-                    )
-                    .size()
-                    .x
-                });
-            let cursor_y = rect.min.y + cursor_line as f32 * line_height;
+        self.cursor_request_focus = false;
 
-            let cursor_rect = egui::Rect::from_min_max(
-                egui::pos2(cursor_x, cursor_y),
-                egui::pos2(cursor_x + 1.0, cursor_y + line_height),
-            );
+        let (cursor_line, _cursor_col) = char_to_line_col(&self.doc, self.cursor);
+        let cursor_x = rect.min.x; // Simplified - actual x calculation would need font_id
+        let cursor_y = rect.min.y + cursor_line as f32 * line_height;
 
-            if cursor_visible {
-                painter.line_segment(
-                    [
-                        egui::pos2(cursor_rect.min.x, cursor_rect.min.y),
-                        egui::pos2(cursor_rect.min.x, cursor_rect.max.y),
-                    ],
-                    egui::Stroke::new(1.0, self.theme.cursor()),
-                );
-            }
+        let v_margin = line_height * CURSOR_REVEAL_V_MARGIN_LINES;
+        let reveal_rect = egui::Rect::from_min_max(
+            egui::pos2(cursor_x - CURSOR_REVEAL_H_MARGIN, cursor_y - v_margin),
+            egui::pos2(
+                cursor_x + CURSOR_REVEAL_H_MARGIN,
+                cursor_y + line_height + v_margin,
+            ),
+        );
 
-            // --- Input ---
-            let events = ui.input(|i| i.filtered_events(&event_filter));
-            for event in events {
-                match event {
-                    egui::Event::Text(text) => {
-                        if text.is_empty() {
-                            continue;
-                        }
+        ui.scroll_to_rect(reveal_rect, None);
+    }
 
-                        if key_modifiers.ctrl {
-                            #[cfg(target_os = "android")]
-                            match text.as_str() {
-                                "c" | "C" => self.copy(ui),
-                                "v" | "V" => {
-                                    if let Ok(text) = android_clipboard::get_text() {
-                                        self.paste(ui, text);
-                                    }
-                                }
-                                "x" | "X" => self.cut(ui),
-                                _ => {}
-                            }
-                        } else {
-                            let selection_before = self.selection.clone();
-                            let cursor_before = self.cursor;
+    fn handle_keyboard_input(
+        &mut self,
+        ui: &mut egui::Ui,
+        key_modifiers: &KeyModifiers,
+        time: f64,
+    ) {
+        let event_filter = egui::EventFilter {
+            tab: true,
+            vertical_arrows: true,
+            horizontal_arrows: true,
+            escape: false,
+        };
 
-                            let (range, removed) = if let Some(sel) = &self.selection {
-                                if sel.start != sel.end {
-                                    let removed = self.doc.slice(sel.clone()).to_string();
-                                    (sel.clone(), removed)
-                                } else {
-                                    (self.cursor..self.cursor, String::new())
-                                }
-                            } else {
-                                (self.cursor..self.cursor, String::new())
-                            };
+        let events = ui.input(|i| i.filtered_events(&event_filter));
 
-                            let cursor_after = range.start + text.chars().count();
-
-                            let edit = Edit {
-                                range,
-                                removed,
-                                inserted: text.clone(),
-
-                                cursor_before,
-                                cursor_after,
-
-                                selection_before,
-                                selection_after: None,
-                            };
-
-                            self.apply_edit(edit);
-
-                            self.desired_column = None;
-                            self.cursor_blink_offset = time;
-                        }
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::Enter,
-                        pressed: true,
-                        ..
-                    } => {
-                        // --- capture state before ---
-                        let selection_before = self.selection.clone();
-                        let cursor_before = self.cursor;
-
-                        // --- determine replacement range ---
-                        let (range, removed) = if let Some(sel) = &self.selection {
-                            if sel.start != sel.end {
-                                let removed = self.doc.slice(sel.clone()).to_string();
-                                (sel.clone(), removed)
-                            } else {
-                                (self.cursor..self.cursor, String::new())
-                            }
-                        } else {
-                            (self.cursor..self.cursor, String::new())
-                        };
-
-                        // --- compute auto-indent ---
-                        let line = self.doc.char_to_line(range.start);
-                        let line_text = self.doc.line(line).to_string();
-                        let indent = leading_whitespace(&line_text);
-
-                        let inserted = format!("\n{}", indent);
-                        let cursor_after = range.start + inserted.chars().count();
-
-                        // --- build undoable edit ---
-                        let edit = Edit {
-                            range,
-                            removed,
-                            inserted,
-
-                            cursor_before,
-                            cursor_after,
-
-                            selection_before,
-                            selection_after: None, // Enter clears selection
-                        };
-
-                        self.apply_edit(edit);
-
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::Backspace,
-                        pressed: true,
-                        ..
-                    } => {
-                        // --- capture state before ---
-                        let selection_before = self.selection.clone();
-                        let cursor_before = self.cursor;
-
-                        // --- determine deletion range ---
-                        let (range, removed) = if let Some(sel) = &self.selection {
-                            if sel.start != sel.end {
-                                let removed = self.doc.slice(sel.clone()).to_string();
-                                (sel.clone(), removed)
-                            } else if self.cursor > 0 {
-                                let range = (self.cursor - 1)..self.cursor;
-                                let removed = self.doc.slice(range.clone()).to_string();
-                                (range, removed)
-                            } else {
-                                return;
-                            }
-                        } else if self.cursor > 0 {
-                            let range = (self.cursor - 1)..self.cursor;
-                            let removed = self.doc.slice(range.clone()).to_string();
-                            (range, removed)
-                        } else {
-                            return;
-                        };
-
-                        let cursor_after = range.start;
-
-                        let edit = Edit {
-                            range,
-                            removed,
-                            inserted: String::new(),
-
-                            cursor_before,
-                            cursor_after,
-
-                            selection_before,
-                            selection_after: None,
-                        };
-
-                        self.apply_edit(edit);
-
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::Delete,
-                        pressed: true,
-                        ..
-                    } => {
-                        // --- capture state before ---
-                        let selection_before = self.selection.clone();
-                        let cursor_before = self.cursor;
-
-                        // --- determine deletion range ---
-                        let (range, removed) = if let Some(sel) = &self.selection {
-                            if sel.start != sel.end {
-                                let removed = self.doc.slice(sel.clone()).to_string();
-                                (sel.clone(), removed)
-                            } else if self.cursor < self.doc.len_chars() {
-                                let range = self.cursor..(self.cursor + 1);
-                                let removed = self.doc.slice(range.clone()).to_string();
-                                (range, removed)
-                            } else {
-                                return;
-                            }
-                        } else if self.cursor < self.doc.len_chars() {
-                            let range = self.cursor..(self.cursor + 1);
-                            let removed = self.doc.slice(range.clone()).to_string();
-                            (range, removed)
-                        } else {
-                            return;
-                        };
-
-                        let cursor_after = range.start;
-
-                        let edit = Edit {
-                            range,
-                            removed,
-                            inserted: String::new(),
-
-                            cursor_before,
-                            cursor_after,
-
-                            selection_before,
-                            selection_after: None,
-                        };
-
-                        self.apply_edit(edit);
-
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::Tab,
-                        pressed: true,
-                        ..
-                    } => {
-                        const TAB_WIDTH: usize = 4;
-
-                        let line = self.doc.char_to_line(self.cursor);
-                        let line_start = self.doc.line_to_char(line);
-                        let column = self.cursor - line_start;
-                        let spaces = TAB_WIDTH - (column % TAB_WIDTH);
-
-                        let mut text = String::new();
-                        for _ in 0..spaces {
-                            text += " ";
-                        }
-
-                        let selection_before = self.selection.clone();
-                        let cursor_before = self.cursor;
-
-                        let (range, removed) = if let Some(sel) = &self.selection {
-                            if sel.start != sel.end {
-                                let removed = self.doc.slice(sel.clone()).to_string();
-                                (sel.clone(), removed)
-                            } else {
-                                (self.cursor..self.cursor, String::new())
-                            }
-                        } else {
-                            (self.cursor..self.cursor, String::new())
-                        };
-
-                        let cursor_after = range.start + text.chars().count();
-
-                        let edit = Edit {
-                            range,
-                            removed,
-                            inserted: text.clone(),
-
-                            cursor_before,
-                            cursor_after,
-
-                            selection_before,
-                            selection_after: None,
-                        };
-
-                        self.apply_edit(edit);
-
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::ArrowLeft,
-                        pressed: true,
-                        ..
-                    } => {
-                        self.update_cursor(self.cursor.saturating_sub(1));
-
-                        self.selection = None;
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::ArrowRight,
-                        pressed: true,
-                        ..
-                    } => {
-                        self.update_cursor((self.cursor + 1).min(self.doc.len_chars()));
-
-                        self.selection = None;
-                        self.desired_column = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::ArrowUp,
-                        pressed: true,
-                        ..
-                    } => {
-                        let (line, col) = char_to_line_col(&self.doc, self.cursor);
-
-                        if line > 0 {
-                            let target_col = self.desired_column.unwrap_or(col);
-                            let prev_line = self.doc.line(line - 1);
-                            let prev_line_start = self.doc.line_to_char(line - 1);
-                            let prev_line_len = line_len_without_newline(prev_line);
-
-                            let new_col = target_col.min(prev_line_len);
-                            self.update_cursor(prev_line_start + new_col);
-                            self.desired_column = Some(target_col);
-                        }
-
-                        self.selection = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::ArrowDown,
-                        pressed: true,
-                        ..
-                    } => {
-                        let (line, col) = char_to_line_col(&self.doc, self.cursor);
-
-                        if line + 1 < self.doc.len_lines() {
-                            let target_col = self.desired_column.unwrap_or(col);
-                            let next_line = self.doc.line(line + 1);
-                            let next_line_start = self.doc.line_to_char(line + 1);
-                            let next_line_len = line_len_without_newline(next_line);
-
-                            let new_col = target_col.min(next_line_len);
-                            self.update_cursor(next_line_start + new_col);
-                            self.desired_column = Some(target_col);
-                        }
-
-                        self.selection = None;
-                        self.cursor_blink_offset = time;
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::Z,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } => {
-                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
-                            self.undo(ui);
-                        }
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::Y,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } => {
-                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
-                            self.redo(ui);
-                        }
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::A,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } => {
-                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
-                            let len = self.doc.len_chars();
-
-                            self.selection = Some(0..len);
-                            self.cursor = len; // cursor at end
-                            self.selection_anchor = Some(0);
-
-                            self.desired_column = None;
-                            self.cursor_blink_offset = time;
-                        }
-                    }
-                    egui::Event::Key {
-                        key: egui::Key::S,
-                        pressed: true,
-                        modifiers,
-                        ..
-                    } => {
-                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
-                            self.format();
-                        }
-                    }
-                    egui::Event::Copy => {
-                        self.copy(ui);
-                    }
-                    egui::Event::Cut => {
-                        self.cut(ui);
-                    }
-                    egui::Event::Paste(text) => {
-                        self.paste(ui, text);
-                    }
-                    _ => {}
+        for event in events {
+            match event {
+                egui::Event::Text(text) => self.handle_text_input(ui, key_modifiers, &text, time),
+                egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => {
+                    self.handle_key_input(ui, key_modifiers, key, modifiers, time);
                 }
-            }
-
-            if self.cursor_request_focus {
-                self.cursor_request_focus = false;
-
-                let v_margin = line_height * 6.0;
-                let h_margin = 40.0;
-
-                let mut reveal_rect = cursor_rect;
-                reveal_rect.min.y -= v_margin;
-                reveal_rect.max.y += v_margin;
-                reveal_rect.min.x -= h_margin;
-                reveal_rect.max.x += h_margin;
-
-                ui.scroll_to_rect(reveal_rect, None);
+                egui::Event::Copy => self.copy(ui),
+                egui::Event::Cut => self.cut(ui),
+                egui::Event::Paste(text) => self.paste(ui, text),
+                _ => {}
             }
         }
     }
 
-    fn line_height(&self, ui: &mut egui::Ui, font_id: &egui::FontId) -> f32 {
-        // Create a minimal test galley to get exact row height
-        let mut test_job = egui::text::LayoutJob::default();
-        test_job.append("Xg", 0.0, self.format_token(TokenType::Literal));
-        let test_galley = ui.fonts_mut(|f| f.layout_job(test_job));
-        if !test_galley.rows.is_empty() {
-            test_galley.rows[0].height()
+    fn handle_text_input(
+        &mut self,
+        #[allow(unused_variables)] ui: &mut egui::Ui,
+        key_modifiers: &KeyModifiers,
+        text: &str,
+        time: f64,
+    ) {
+        if text.is_empty() {
+            return;
+        }
+
+        if key_modifiers.ctrl {
+            #[cfg(target_os = "android")]
+            match text {
+                "c" | "C" => self.copy(ui),
+                "v" | "V" => {
+                    if let Ok(clipboard_text) = android_clipboard::get_text() {
+                        self.paste(ui, clipboard_text);
+                    }
+                }
+                "x" | "X" => self.cut(ui),
+                _ => {}
+            }
+            return;
+        }
+
+        self.insert_text(text, time);
+    }
+
+    fn handle_key_input(
+        &mut self,
+        ui: &mut egui::Ui,
+        key_modifiers: &KeyModifiers,
+        key: egui::Key,
+        modifiers: egui::Modifiers,
+        time: f64,
+    ) {
+        let is_ctrl = modifiers.ctrl || modifiers.command || key_modifiers.ctrl;
+
+        match key {
+            egui::Key::Enter => self.handle_enter(time),
+            egui::Key::Backspace => self.handle_backspace(time),
+            egui::Key::Delete => self.handle_delete(time),
+            egui::Key::Tab => self.handle_tab(time),
+            egui::Key::ArrowLeft => self.handle_arrow_left(time),
+            egui::Key::ArrowRight => self.handle_arrow_right(time),
+            egui::Key::ArrowUp => self.handle_arrow_up(time),
+            egui::Key::ArrowDown => self.handle_arrow_down(time),
+            egui::Key::Z if is_ctrl => self.undo(ui),
+            egui::Key::Y if is_ctrl => self.redo(ui),
+            egui::Key::A if is_ctrl => self.select_all(time),
+            egui::Key::S if is_ctrl => self.format(),
+            _ => {}
+        }
+    }
+
+    // ========================================================================
+    // Edit Operations
+    // ========================================================================
+
+    /// Returns the range to edit and the text being removed (if any)
+    fn get_edit_range(&self) -> (Range<usize>, String) {
+        if let Some(sel) = &self.selection {
+            if sel.start != sel.end {
+                let removed = self.doc.slice(sel.clone()).to_string();
+                return (sel.clone(), removed);
+            }
+        }
+        (self.cursor..self.cursor, String::new())
+    }
+
+    fn insert_text(&mut self, text: &str, time: f64) {
+        let selection_before = self.selection.clone();
+        let cursor_before = self.cursor;
+        let (range, removed) = self.get_edit_range();
+        let cursor_after = range.start + text.chars().count();
+
+        let edit = Edit {
+            range,
+            removed,
+            inserted: text.to_string(),
+            cursor_before,
+            cursor_after,
+            selection_before,
+            selection_after: None,
+        };
+
+        self.apply_edit(edit);
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn handle_enter(&mut self, time: f64) {
+        let selection_before = self.selection.clone();
+        let cursor_before = self.cursor;
+        let (range, removed) = self.get_edit_range();
+
+        let line = self.doc.char_to_line(range.start);
+        let line_text = self.doc.line(line).to_string();
+        let indent = leading_whitespace(&line_text);
+        let inserted = format!("\n{}", indent);
+        let cursor_after = range.start + inserted.chars().count();
+
+        let edit = Edit {
+            range,
+            removed,
+            inserted,
+            cursor_before,
+            cursor_after,
+            selection_before,
+            selection_after: None,
+        };
+
+        self.apply_edit(edit);
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn handle_backspace(&mut self, time: f64) {
+        let selection_before = self.selection.clone();
+        let cursor_before = self.cursor;
+
+        let (range, removed) = if let Some(sel) = &self.selection {
+            if sel.start != sel.end {
+                (sel.clone(), self.doc.slice(sel.clone()).to_string())
+            } else if self.cursor > 0 {
+                let r = (self.cursor - 1)..self.cursor;
+                (r.clone(), self.doc.slice(r).to_string())
+            } else {
+                return;
+            }
+        } else if self.cursor > 0 {
+            let r = (self.cursor - 1)..self.cursor;
+            (r.clone(), self.doc.slice(r).to_string())
         } else {
-            ui.fonts_mut(|f| f.row_height(font_id))
-        }
+            return;
+        };
+
+        let edit = Edit {
+            range: range.clone(),
+            removed,
+            inserted: String::new(),
+            cursor_before,
+            cursor_after: range.start,
+            selection_before,
+            selection_after: None,
+        };
+
+        self.apply_edit(edit);
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
     }
+
+    fn handle_delete(&mut self, time: f64) {
+        let selection_before = self.selection.clone();
+        let cursor_before = self.cursor;
+
+        let (range, removed) = if let Some(sel) = &self.selection {
+            if sel.start != sel.end {
+                (sel.clone(), self.doc.slice(sel.clone()).to_string())
+            } else if self.cursor < self.doc.len_chars() {
+                let r = self.cursor..(self.cursor + 1);
+                (r.clone(), self.doc.slice(r).to_string())
+            } else {
+                return;
+            }
+        } else if self.cursor < self.doc.len_chars() {
+            let r = self.cursor..(self.cursor + 1);
+            (r.clone(), self.doc.slice(r).to_string())
+        } else {
+            return;
+        };
+
+        let edit = Edit {
+            range: range.clone(),
+            removed,
+            inserted: String::new(),
+            cursor_before,
+            cursor_after: range.start,
+            selection_before,
+            selection_after: None,
+        };
+
+        self.apply_edit(edit);
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn handle_tab(&mut self, time: f64) {
+        let line = self.doc.char_to_line(self.cursor);
+        let line_start = self.doc.line_to_char(line);
+        let column = self.cursor - line_start;
+        let spaces = TAB_WIDTH - (column % TAB_WIDTH);
+        let text: String = " ".repeat(spaces);
+
+        self.insert_text(&text, time);
+    }
+
+    fn handle_arrow_left(&mut self, time: f64) {
+        self.update_cursor(self.cursor.saturating_sub(1));
+        self.selection = None;
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn handle_arrow_right(&mut self, time: f64) {
+        self.update_cursor((self.cursor + 1).min(self.doc.len_chars()));
+        self.selection = None;
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn handle_arrow_up(&mut self, time: f64) {
+        let (line, col) = char_to_line_col(&self.doc, self.cursor);
+
+        if line > 0 {
+            let target_col = self.desired_column.unwrap_or(col);
+            let prev_line = self.doc.line(line - 1);
+            let prev_line_start = self.doc.line_to_char(line - 1);
+            let prev_line_len = line_len_without_newline(prev_line);
+
+            let new_col = target_col.min(prev_line_len);
+            self.update_cursor(prev_line_start + new_col);
+            self.desired_column = Some(target_col);
+        }
+
+        self.selection = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn handle_arrow_down(&mut self, time: f64) {
+        let (line, col) = char_to_line_col(&self.doc, self.cursor);
+
+        if line + 1 < self.doc.len_lines() {
+            let target_col = self.desired_column.unwrap_or(col);
+            let next_line = self.doc.line(line + 1);
+            let next_line_start = self.doc.line_to_char(line + 1);
+            let next_line_len = line_len_without_newline(next_line);
+
+            let new_col = target_col.min(next_line_len);
+            self.update_cursor(next_line_start + new_col);
+            self.desired_column = Some(target_col);
+        }
+
+        self.selection = None;
+        self.cursor_blink_offset = time;
+    }
+
+    fn select_all(&mut self, time: f64) {
+        let len = self.doc.len_chars();
+        self.selection = Some(0..len);
+        self.cursor = len;
+        self.selection_anchor = Some(0);
+        self.desired_column = None;
+        self.cursor_blink_offset = time;
+    }
+
+    // ========================================================================
+    // Edit Application & Undo/Redo
+    // ========================================================================
 
     fn apply_edit(&mut self, edit: Edit) {
-        // Apply edit
         self.doc.remove(edit.range.clone());
         self.doc.insert(edit.range.start, &edit.inserted);
 
         self.update_cursor(edit.cursor_after);
         self.selection = edit.selection_after.clone();
-        self.max_line_width = None;
-        self.text_layout_job = None;
+        self.invalidate_layout();
 
-        // Push undo
         self.edit_stack.undo.push(edit);
         self.edit_stack.redo.clear();
     }
@@ -942,14 +1022,21 @@ impl CodeEditor {
         self.cursor_request_focus = true;
     }
 
+    fn invalidate_layout(&mut self) {
+        self.max_line_width = None;
+        self.text_layout_job = None;
+    }
+
     fn copy(&self, ui: &mut egui::Ui) {
-        if let Some(text) = self.selected_text() {
-            cfg_if::cfg_if! {
-                if #[cfg(target_os = "android")] {
-                    android_clipboard::set_text(text);
-                } else {
-                    ui.ctx().copy_text(text.clone());
-                }
+        let Some(text) = self.selected_text() else {
+            return;
+        };
+
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "android")] {
+                android_clipboard::set_text(text);
+            } else {
+                ui.ctx().copy_text(text);
             }
         }
     }
@@ -958,45 +1045,36 @@ impl CodeEditor {
         let Some(selection) = self.selection.clone() else {
             return;
         };
-
         if selection.start == selection.end {
             return;
         }
 
-        // --- Copy to clipboard ---
+        // Copy to clipboard
         if let Some(text) = self.selected_text() {
             cfg_if::cfg_if! {
                 if #[cfg(target_os = "android")] {
-                    android_clipboard::set_text(text.clone());
+                    android_clipboard::set_text(text);
                 } else {
-                    ui.ctx().copy_text(text.clone());
+                    ui.ctx().copy_text(text);
                 }
             }
         }
 
-        // --- Capture state before ---
         let selection_before = self.selection.clone();
         let cursor_before = self.cursor;
-
-        // --- Capture removed text ---
         let removed = self.doc.slice(selection.clone()).to_string();
-
-        let cursor_after = selection.start;
 
         let edit = Edit {
             range: selection.clone(),
             removed,
             inserted: String::new(),
-
             cursor_before,
-            cursor_after,
-
+            cursor_after: selection.start,
             selection_before,
             selection_after: None,
         };
 
         self.apply_edit(edit);
-
         self.desired_column = None;
         self.cursor_blink_offset = ui.input(|i| i.time);
     }
@@ -1008,35 +1086,20 @@ impl CodeEditor {
 
         let selection_before = self.selection.clone();
         let cursor_before = self.cursor;
-
-        // --- Determine replacement range ---
-        let (range, removed) = if let Some(sel) = &self.selection {
-            if sel.start != sel.end {
-                let removed = self.doc.slice(sel.clone()).to_string();
-                (sel.clone(), removed)
-            } else {
-                (self.cursor..self.cursor, String::new())
-            }
-        } else {
-            (self.cursor..self.cursor, String::new())
-        };
-
+        let (range, removed) = self.get_edit_range();
         let cursor_after = range.start + text.chars().count();
 
         let edit = Edit {
             range,
             removed,
             inserted: text,
-
             cursor_before,
             cursor_after,
-
             selection_before,
             selection_after: None,
         };
 
         self.apply_edit(edit);
-
         self.desired_column = None;
         self.cursor_blink_offset = ui.input(|i| i.time);
     }
@@ -1046,29 +1109,16 @@ impl CodeEditor {
             return;
         };
 
-        // Revert
-        let revert = Edit {
-            range: edit.range.start..(edit.range.start + edit.inserted.chars().count()),
-            removed: edit.inserted.clone(),
-            inserted: edit.removed.clone(),
+        let revert_range = edit.range.start..(edit.range.start + edit.inserted.chars().count());
 
-            cursor_before: edit.cursor_after,
-            cursor_after: edit.cursor_before,
+        self.doc.remove(revert_range.clone());
+        self.doc.insert(revert_range.start, &edit.removed);
 
-            selection_before: edit.selection_after.clone(),
-            selection_after: edit.selection_before.clone(),
-        };
-
-        self.doc.remove(revert.range.clone());
-        self.doc.insert(revert.range.start, &revert.inserted);
-
-        self.update_cursor(revert.cursor_after);
-        self.selection = revert.selection_after.clone();
-        self.max_line_width = None;
-        self.text_layout_job = None;
+        self.update_cursor(edit.cursor_before);
+        self.selection = edit.selection_before.clone();
+        self.invalidate_layout();
 
         self.edit_stack.redo.push(edit);
-
         self.cursor_blink_offset = ui.input(|i| i.time);
     }
 
@@ -1082,38 +1132,28 @@ impl CodeEditor {
 
         self.update_cursor(edit.cursor_after);
         self.selection = edit.selection_after.clone();
-        self.max_line_width = None;
-        self.text_layout_job = None;
+        self.invalidate_layout();
 
         self.edit_stack.undo.push(edit);
-
         self.cursor_blink_offset = ui.input(|i| i.time);
     }
 
     fn format(&mut self) {
-        // Save cursor line & column before formatting
         let cursor_line = self.doc.char_to_line(self.cursor);
         let line_start = self.doc.line_to_char(cursor_line);
         let cursor_col = self.cursor - line_start;
 
-        // Format source
         let source = self.doc.to_string();
         let formatted = self.syntax.formatter.format(source);
 
-        // Replace doc
         self.doc = Rope::from_str(&formatted);
 
-        // Clamp line
+        // Restore cursor position as best we can
         let new_line = cursor_line.min(self.doc.len_lines() - 1);
-
-        // Clamp column to line length
         let line_len = self.doc.line(new_line).len_chars();
         let new_col = cursor_col.min(line_len);
 
-        // Set cursor
         self.update_cursor(self.doc.line_to_char(new_line) + new_col);
-
-        // Clear selection if needed
         self.selection = None;
     }
 
@@ -1122,6 +1162,10 @@ impl CodeEditor {
             .as_ref()
             .map(|range| self.doc.slice(range.clone()).to_string())
     }
+
+    // ========================================================================
+    // External API (do not modify)
+    // ========================================================================
 
     fn format_token(&self, ty: TokenType) -> egui::text::TextFormat {
         let font_id = egui::FontId::monospace(self.fontsize);
