@@ -1170,7 +1170,12 @@ impl CodeEditor {
     fn format_token(&self, ty: TokenType) -> egui::text::TextFormat {
         let font_id = egui::FontId::monospace(self.fontsize);
         let color = self.theme.type_color(ty);
-        egui::text::TextFormat::simple(font_id, color)
+        egui::text::TextFormat {
+            font_id,
+            color,
+            line_height: Some(self.fontsize * 1.25),
+            ..Default::default()
+        }
     }
 
     fn append(&self, job: &mut egui::text::LayoutJob, token: &Token) {
