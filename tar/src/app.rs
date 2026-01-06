@@ -586,12 +586,5 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
         _device_id: winit::event::DeviceId,
         _event: winit::event::DeviceEvent,
     ) {
-        //DeviceEvent::Key(())
-        //log::info!("{:?}", event);
-        // if let Some(rp_state) = &mut self.rp_state {
-        //     // rp_state.render_pipeline.device_event(event.clone());
-
-        //     // TODO: send to different rp_state
-        // }
     }
 }
