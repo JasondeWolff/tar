@@ -1,4 +1,4 @@
-use crate::code_editor::syntax::SyntaxFormatter;
+use crate::editor::code_editor::syntax::SyntaxFormatter;
 
 use super::Syntax;
 use std::collections::BTreeSet;

@@ -7,8 +7,8 @@ use ropey::Rope;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-use crate::code_editor::highlighting::highlight;
-use crate::code_editor::{
+use crate::editor::code_editor::highlighting::highlight;
+use crate::editor::code_editor::{
     highlighting::Token,
     syntax::{Syntax, TokenType},
     themes::ColorTheme,

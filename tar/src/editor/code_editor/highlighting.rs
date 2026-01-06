@@ -1,4 +1,4 @@
-use crate::code_editor::CodeEditor;
+use crate::editor::code_editor::CodeEditor;
 
 use super::syntax::{Syntax, TokenType, QUOTES, SEPARATORS};
 use std::mem;

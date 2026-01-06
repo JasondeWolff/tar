@@ -1,22 +1,26 @@
-use egui::{FontData, FontDefinitions, FontFamily};
 use std::sync::Arc;
 
-pub fn init(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::empty();
+pub fn init(egui_ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
 
     fonts.font_data.insert(
         "cascadia".to_owned(),
-        Arc::new(FontData::from_static(include_bytes!(
+        Arc::new(egui::FontData::from_static(include_bytes!(
             "../../assets/fonts/CascadiaCode-Regular.ttf"
         ))),
     );
-
     fonts
         .families
-        .insert(FontFamily::Proportional, vec!["cascadia".to_owned()]);
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "cascadia".to_owned());
     fonts
         .families
-        .insert(FontFamily::Monospace, vec!["cascadia".to_owned()]);
+        .get_mut(&egui::FontFamily::Monospace)
+        .unwrap()
+        .push("cascadia".to_owned());
 
-    ctx.set_fonts(fonts);
+    egui_ctx.set_fonts(fonts);
 }
