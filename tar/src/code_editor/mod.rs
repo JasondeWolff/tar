@@ -17,9 +17,6 @@ pub mod highlighting;
 pub mod syntax;
 pub mod themes;
 
-const INDENT: &str = "    ";
-const INDENT_WIDTH: usize = 4;
-
 fn char_to_line_col(doc: &Rope, char_idx: usize) -> (usize, usize) {
     let line = doc.char_to_line(char_idx);
     let line_start = doc.line_to_char(line);
@@ -37,39 +34,6 @@ fn line_len_without_newline(line: ropey::RopeSlice) -> usize {
         len - 1
     } else {
         len
-    }
-}
-
-fn y_to_row_index(y: f32, galley: &egui::Galley) -> usize {
-    for (i, row) in galley.rows.iter().enumerate() {
-        if y >= row.min_y() && y < row.max_y() {
-            return i;
-        }
-    }
-
-    galley.rows.len().saturating_sub(1)
-}
-
-fn selection_line_range(
-    doc: &ropey::Rope,
-    sel: &std::ops::Range<usize>,
-) -> std::ops::RangeInclusive<usize> {
-    let start_line = doc.char_to_line(sel.start);
-    let mut end_line = doc.char_to_line(sel.end);
-
-    // If selection ends exactly at start of a line, don't include that line
-    if sel.end > sel.start && doc.line_to_char(end_line) == sel.end {
-        end_line = end_line.saturating_sub(1);
-    }
-
-    start_line..=end_line
-}
-
-fn safe_char_to_line(doc: &Rope, char_idx: usize) -> usize {
-    if char_idx >= doc.len_chars() {
-        doc.len_lines().saturating_sub(1)
-    } else {
-        doc.char_to_line(char_idx)
     }
 }
 
@@ -98,6 +62,7 @@ pub struct CodeEditor {
 
     pub cursor: usize,
     cursor_blink_offset: f64,
+    cursor_request_focus: bool,
     desired_column: Option<usize>,
     pub selection: Option<Range<usize>>,
     selection_anchor: Option<usize>,
@@ -114,6 +79,7 @@ impl CodeEditor {
             edit_stack: EditStack::default(),
             cursor: 0,
             cursor_blink_offset: 0.0,
+            cursor_request_focus: false,
             desired_column: None,
             selection: None,
             selection_anchor: None,
@@ -141,6 +107,11 @@ impl CodeEditor {
 
         let layout_job = highlight(ui.ctx(), self, &source);
         let galley = ui.fonts_mut(|f| f.layout_job(layout_job));
+        let line_height = if !galley.rows.is_empty() {
+            galley.rows[0].height()
+        } else {
+            16.0
+        };
 
         // --- Allocate base rect ---
         let font_id = egui::FontId::monospace(self.fontsize);
@@ -297,7 +268,7 @@ impl CodeEditor {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 // --- Convert pointer position to char index ---
                 let y = pos.y - rect.min.y;
-                let line = y_to_row_index(y, &galley);
+                let line = (y / line_height) as usize;
 
                 let line_text = self.doc.line(line);
                 let max_col = line_len_without_newline(line_text);
@@ -336,7 +307,7 @@ impl CodeEditor {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 let (drag_line, drag_col) = {
                     let y = pos.y - rect.min.y;
-                    let line = y_to_row_index(y, &galley);
+                    let line = (y / line_height) as usize;
 
                     let line_text = self.doc.line(line);
                     let max_col = line_len_without_newline(line_text);
@@ -370,7 +341,7 @@ impl CodeEditor {
                 self.selection = Some(anchor.min(char_idx)..anchor.max(char_idx));
 
                 // Update cursor to follow mouse
-                self.cursor = char_idx;
+                self.update_cursor(char_idx);
                 self.desired_column = Some(drag_col);
                 self.cursor_blink_offset = time;
             }
@@ -385,26 +356,30 @@ impl CodeEditor {
             let cursor_visible =
                 ((time - self.cursor_blink_offset) % BLINK_SPEED) < (BLINK_SPEED * 0.5);
 
+            let (cursor_line, cursor_col) = char_to_line_col(&self.doc, self.cursor);
+            let cursor_x = text_x
+                + ui.fonts_mut(|f| {
+                    f.layout_no_wrap(
+                        self.doc.line(cursor_line).slice(..cursor_col).to_string(),
+                        font_id.clone(),
+                        egui::Color32::WHITE,
+                    )
+                    .size()
+                    .x
+                });
+            let cursor_height = galley.rows[cursor_line].height();
+            let cursor_y = rect.min.y + galley.rows[cursor_line].min_y();
+
+            let cursor_rect = egui::Rect::from_min_max(
+                egui::pos2(cursor_x, cursor_y),
+                egui::pos2(cursor_x + 1.0, cursor_y + cursor_height),
+            );
+
             if cursor_visible {
-                let (cursor_line, cursor_col) = char_to_line_col(&self.doc, self.cursor);
-                let cursor_x = text_x
-                    + ui.fonts_mut(|f| {
-                        f.layout_no_wrap(
-                            self.doc.line(cursor_line).slice(..cursor_col).to_string(),
-                            font_id.clone(),
-                            egui::Color32::WHITE,
-                        )
-                        .size()
-                        .x
-                    });
-
-                let cursor_height = galley.rows[cursor_line].height();
-                let cursor_y = rect.min.y + galley.rows[cursor_line].min_y();
-
                 painter.line_segment(
                     [
-                        egui::pos2(cursor_x, cursor_y),
-                        egui::pos2(cursor_x, cursor_y + cursor_height),
+                        egui::pos2(cursor_rect.min.x, cursor_rect.min.y),
+                        egui::pos2(cursor_rect.min.x, cursor_rect.max.y),
                     ],
                     egui::Stroke::new(1.0, self.theme.cursor()),
                 );
@@ -664,7 +639,7 @@ impl CodeEditor {
                         pressed: true,
                         ..
                     } => {
-                        self.cursor = self.cursor.saturating_sub(1);
+                        self.update_cursor(self.cursor.saturating_sub(1));
 
                         self.selection = None;
                         self.desired_column = None;
@@ -675,7 +650,7 @@ impl CodeEditor {
                         pressed: true,
                         ..
                     } => {
-                        self.cursor = (self.cursor + 1).min(self.doc.len_chars());
+                        self.update_cursor((self.cursor + 1).min(self.doc.len_chars()));
 
                         self.selection = None;
                         self.desired_column = None;
@@ -695,7 +670,7 @@ impl CodeEditor {
                             let prev_line_len = line_len_without_newline(prev_line);
 
                             let new_col = target_col.min(prev_line_len);
-                            self.cursor = prev_line_start + new_col;
+                            self.update_cursor(prev_line_start + new_col);
                             self.desired_column = Some(target_col);
                         }
 
@@ -716,7 +691,7 @@ impl CodeEditor {
                             let next_line_len = line_len_without_newline(next_line);
 
                             let new_col = target_col.min(next_line_len);
-                            self.cursor = next_line_start + new_col;
+                            self.update_cursor(next_line_start + new_col);
                             self.desired_column = Some(target_col);
                         }
 
@@ -744,6 +719,23 @@ impl CodeEditor {
                         }
                     }
                     egui::Event::Key {
+                        key: egui::Key::A,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => {
+                        if modifiers.ctrl || modifiers.command || key_modifiers.ctrl {
+                            let len = self.doc.len_chars();
+
+                            self.selection = Some(0..len);
+                            self.cursor = len; // cursor at end
+                            self.selection_anchor = Some(0);
+
+                            self.desired_column = None;
+                            self.cursor_blink_offset = time;
+                        }
+                    }
+                    egui::Event::Key {
                         key: egui::Key::S,
                         pressed: true,
                         modifiers,
@@ -765,6 +757,21 @@ impl CodeEditor {
                     _ => {}
                 }
             }
+
+            if self.cursor_request_focus {
+                self.cursor_request_focus = false;
+
+                let v_margin = line_height * 6.0;
+                let h_margin = 40.0;
+
+                let mut reveal_rect = cursor_rect;
+                reveal_rect.min.y -= v_margin;
+                reveal_rect.max.y += v_margin;
+                reveal_rect.min.x -= h_margin;
+                reveal_rect.max.x += h_margin;
+
+                ui.scroll_to_rect(reveal_rect, None);
+            }
         }
     }
 
@@ -773,12 +780,17 @@ impl CodeEditor {
         self.doc.remove(edit.range.clone());
         self.doc.insert(edit.range.start, &edit.inserted);
 
-        self.cursor = edit.cursor_after;
+        self.update_cursor(edit.cursor_after);
         self.selection = edit.selection_after.clone();
 
         // Push undo
         self.edit_stack.undo.push(edit);
         self.edit_stack.redo.clear();
+    }
+
+    fn update_cursor(&mut self, cursor: usize) {
+        self.cursor = cursor;
+        self.cursor_request_focus = true;
     }
 
     fn copy(&self, ui: &mut egui::Ui) {
@@ -901,7 +913,7 @@ impl CodeEditor {
         self.doc.remove(revert.range.clone());
         self.doc.insert(revert.range.start, &revert.inserted);
 
-        self.cursor = revert.cursor_after;
+        self.update_cursor(revert.cursor_after);
         self.selection = revert.selection_after.clone();
 
         self.edit_stack.redo.push(edit);
@@ -917,7 +929,7 @@ impl CodeEditor {
         self.doc.remove(edit.range.clone());
         self.doc.insert(edit.range.start, &edit.inserted);
 
-        self.cursor = edit.cursor_after;
+        self.update_cursor(edit.cursor_after);
         self.selection = edit.selection_after.clone();
 
         self.edit_stack.undo.push(edit);
@@ -946,7 +958,7 @@ impl CodeEditor {
         let new_col = cursor_col.min(line_len);
 
         // Set cursor
-        self.cursor = self.doc.line_to_char(new_line) + new_col;
+        self.update_cursor(self.doc.line_to_char(new_line) + new_col);
 
         // Clear selection if needed
         self.selection = None;
