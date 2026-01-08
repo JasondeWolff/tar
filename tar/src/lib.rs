@@ -18,15 +18,6 @@ pub struct App {
     editor: Editor,
 }
 
-// const DEFAULT_CODE: &str = r#"@include tar/common.wgsl
-
-// fn main(tex_coords: vec2f) -> vec4f {
-//     let color = vec3f(tex_coords, 0.0);
-
-//     return vec4f(color, 1.0);
-// }
-// "#;
-
 impl App {
     fn new() -> Self {
         Self {

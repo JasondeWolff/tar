@@ -1,14 +1,21 @@
 use crate::{
-    editor::tabs::{code_editor::CodeEditorTab, viewport::ViewportTab},
+    editor::tabs::{
+        code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
+        viewport::ViewportTab,
+    },
     egui_util::KeyModifiers,
 };
 
 pub mod code_editor;
+pub mod console;
+pub mod file_explorer;
 pub mod viewport;
 
 #[allow(clippy::large_enum_variant)]
 pub enum Tab {
     CodeEditor(CodeEditorTab),
+    Console(ConsoleTab),
+    FileExplorer(FileExplorerTab),
     Viewport(ViewportTab),
 }
 
@@ -16,10 +23,16 @@ impl std::fmt::Display for Tab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CodeEditor(_) => {
-                write!(f, "{} Code Editor", egui_phosphor::regular::CODEPEN_LOGO)
+                write!(f, "{} Code Editor", egui_phosphor::regular::CODE)
+            }
+            Self::Console(_) => {
+                write!(f, "{} Console", egui_phosphor::regular::TERMINAL)
+            }
+            Self::FileExplorer(_) => {
+                write!(f, "{} File Explorer", egui_phosphor::regular::FOLDER)
             }
             Self::Viewport(_) => {
-                write!(f, "{} Viewport", egui_phosphor::regular::EYE)
+                write!(f, "{} Viewport", egui_phosphor::regular::MONITOR_PLAY)
             }
         }
     }
@@ -35,32 +48,47 @@ impl<'a> TabViewer<'a> {
     }
 }
 
-impl egui_dock::TabViewer for TabViewer<'_> {
-    type Tab = Tab;
-
-    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
+    fn tab_title_for_pane(&mut self, tab: &Tab) -> egui::WidgetText {
         tab.to_string().into()
     }
 
-    fn scroll_bars(&self, _tab: &Self::Tab) -> [bool; 2] {
-        [false, false]
-    }
-
-    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+    fn pane_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _tile_id: egui_tiles::TileId,
+        tab: &mut Tab,
+    ) -> egui_tiles::UiResponse {
         match tab {
             Tab::Viewport(tab) => {
+                tab.ui(ui);
+            }
+            Tab::Console(tab) => {
+                tab.ui(ui);
+            }
+            Tab::FileExplorer(tab) => {
                 tab.ui(ui);
             }
             Tab::CodeEditor(tab) => {
                 tab.ui(ui, self.key_modifiers);
             }
         }
+
+        Default::default()
     }
 
-    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
-        match tab {
-            Tab::Viewport(tab) => egui::Id::new(format!("viewport_{}", tab.id())),
-            Tab::CodeEditor(tab) => egui::Id::new(format!("code_editor_{}", tab.id())),
+    fn is_tab_closable(
+        &self,
+        _tiles: &egui_tiles::Tiles<Tab>,
+        _tile_id: egui_tiles::TileId,
+    ) -> bool {
+        true
+    }
+
+    fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
+        egui_tiles::SimplificationOptions {
+            all_panes_must_have_tabs: true,
+            ..Default::default()
         }
     }
 }

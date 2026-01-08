@@ -28,8 +28,8 @@ clap = { version = "4.5.35", default-features = true, features = ["derive"] }
 # ctor = { version = "0.2.9", default-features = false }
 egui = { version = "0.33.3", default-features = true, features = ["bytemuck"] }
 #egui_code_editor = "0.2.20"
-egui_dock = { version = "0.18.0", default-features = true }
 egui-phosphor = { version = "0.11.0", default-features = true }
+egui_tiles = { version = "0.14.1", default-features = true }
 egui-winit = { version = "0.33.3", default-features = false, features = ["webbrowser", "clipboard"] }
 env_logger = { version = "0.11.5", default-features = true }
 fern = { version = "0.7.1", default-features = true }
