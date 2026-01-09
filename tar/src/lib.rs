@@ -10,6 +10,8 @@ use crate::{
 pub mod app;
 pub mod editor;
 pub mod egui_util;
+pub mod project;
+pub mod render_graph;
 pub mod time;
 pub mod wgpu_util;
 

@@ -16,7 +16,7 @@ android-activity = { version = "0.6.0", features = ["native-activity"] }
 android_clipboard = "0.1.0"
 android_logger = { version = "0.15" }
 ansi_term = { version = "0.12", default-features = false }
-# anyhow = { version = "1.0.94", default-features = false, features = ["std"] }
+anyhow = { version = "1.0.94", default-features = false, features = ["std"] }
 # async-fs = { version = "2.1.2", default-features = true }
 # bitflags = { version = "2.6.0", default-features = false }
 # bytecheck = { version = "0.8.0", default-features = false }
@@ -28,6 +28,7 @@ clap = { version = "4.5.35", default-features = true, features = ["derive"] }
 # ctor = { version = "0.2.9", default-features = false }
 egui = { version = "0.33.3", default-features = true, features = ["bytemuck"] }
 #egui_code_editor = "0.2.20"
+#egui_node_graph2 = { git = "https://github.com/JasondeWolff/egui_node_graph.git", default-features = false, features = ["persistence"] }
 egui-phosphor = { version = "0.11.0", default-features = true }
 egui_tiles = { version = "0.14.1", default-features = true }
 egui-winit = { version = "0.33.3", default-features = false, features = ["webbrowser", "clipboard"] }
@@ -55,8 +56,10 @@ panic-log = { version = "0.3.0" }
 # rmpv = { version = "1.0.1", default-features = false, features = ["with-serde"] }
 # rmp-serde = { version = "1.1.2", default-features = false }
 ropey = "1.6.1"
-# serde = { version = "1.0.216", default-features = false, features = ["derive", "rc", "std"] }
-# serde_json = { version = "1.0.114", default-features = false, features = ["std"] }
+serde = { version = "1.0.216", default-features = false, features = ["derive", "rc", "std"] }
+serde_json = { version = "1.0.114", default-features = false, features = ["std"] }
+slotmap = { version = "1.0", default-features = true, features = ["serde"] }
+smallvec = { version = "1.10.0", default-features = true, features = ["serde"] }
 # shaderc = { version = "0.8", default-features = false }
 # specs = { version = "0.20.0", default-features = true }
 # strum = { version = "0.27.2", default-features = false, features = ["derive"] }
@@ -69,8 +72,9 @@ time = { version = "0.3.44", default-features = false, features = [
     "parsing",
     "serde",
 ] }
+thiserror = { version = "1.0", default-features = true }
 type-map = { version = "0.5.0", default-features = false }
-uuid = { version = "1.12.1", default-features = false, features = ["v4"] }
+uuid = { version = "1.12.1", default-features = false, features = ["v4", "serde"] }
 # wasm-bindgen = { version = "0.2.84", default-features = true }
 # wasm-bindgen-futures = { version = "0.4.49", default-features = true }
 # wasm-bindgen-test = { version = "0.3", default-features = true }

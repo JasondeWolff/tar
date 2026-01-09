@@ -1,7 +1,7 @@
 use crate::{
     editor::tabs::{
         code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
-        viewport::ViewportTab,
+        render_graph::RenderGraphTab, viewport::ViewportTab,
     },
     egui_util::KeyModifiers,
 };
@@ -9,6 +9,7 @@ use crate::{
 pub mod code_editor;
 pub mod console;
 pub mod file_explorer;
+pub mod render_graph;
 pub mod viewport;
 
 #[allow(clippy::large_enum_variant)]
@@ -16,6 +17,7 @@ pub enum Tab {
     CodeEditor(CodeEditorTab),
     Console(ConsoleTab),
     FileExplorer(FileExplorerTab),
+    RenderGraph(RenderGraphTab),
     Viewport(ViewportTab),
 }
 
@@ -26,10 +28,13 @@ impl std::fmt::Display for Tab {
                 write!(f, "{} Code Editor", egui_phosphor::regular::CODE)
             }
             Self::Console(_) => {
-                write!(f, "{} Console", egui_phosphor::regular::TERMINAL)
+                write!(f, "{} Console", egui_phosphor::regular::TEXT_ALIGN_LEFT)
             }
             Self::FileExplorer(_) => {
                 write!(f, "{} File Explorer", egui_phosphor::regular::FOLDER)
+            }
+            Self::RenderGraph(_) => {
+                write!(f, "{} Render Graph", egui_phosphor::regular::BLUEPRINT)
             }
             Self::Viewport(_) => {
                 write!(f, "{} Viewport", egui_phosphor::regular::MONITOR_PLAY)
@@ -69,6 +74,9 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
             Tab::FileExplorer(tab) => {
                 tab.ui(ui);
             }
+            Tab::RenderGraph(tab) => {
+                tab.ui(ui);
+            }
             Tab::CodeEditor(tab) => {
                 tab.ui(ui, self.key_modifiers);
             }
@@ -77,12 +85,12 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
         Default::default()
     }
 
-    fn is_tab_closable(
-        &self,
-        _tiles: &egui_tiles::Tiles<Tab>,
-        _tile_id: egui_tiles::TileId,
-    ) -> bool {
-        true
+    fn is_tab_closable(&self, tiles: &egui_tiles::Tiles<Tab>, tile_id: egui_tiles::TileId) -> bool {
+        if let Some(egui_tiles::Tile::Pane(tab)) = tiles.get(tile_id) {
+            matches!(tab, Tab::CodeEditor(_))
+        } else {
+            false
+        }
     }
 
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {

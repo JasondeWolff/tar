@@ -9,12 +9,14 @@ version = "0.1.0"
 
 [dependencies]
 ansi_term.workspace = true
+anyhow.workspace = true
 bytemuck.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
 egui.workspace = true
-egui_tiles.workspace = true
+#egui_node_graph2.workspace = true
 egui-phosphor.workspace = true
+egui_tiles.workspace = true
 egui-winit.workspace = true
 env_logger.workspace = true
 fern.workspace = true
@@ -22,6 +24,11 @@ futures.workspace = true
 log.workspace = true
 panic-log.workspace = true
 ropey.workspace = true
+slotmap.workspace = true
+smallvec.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 time.workspace = true
 type-map.workspace = true
 uuid.workspace = true
