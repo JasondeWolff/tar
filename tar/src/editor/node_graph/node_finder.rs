@@ -60,7 +60,12 @@ where
         let mut submitted_archetype = None;
         frame.show(ui, |ui| {
             ui.vertical(|ui| {
-                let resp = ui.text_edit_singleline(&mut self.query);
+                let resp = ui
+                    .scope(|ui| {
+                        ui.visuals_mut().selection.stroke = Stroke::NONE;
+                        ui.text_edit_singleline(&mut self.query)
+                    })
+                    .inner;
                 if self.just_spawned {
                     resp.request_focus();
                     self.just_spawned = false;
@@ -93,6 +98,7 @@ where
                     .show(ui, |ui| {
                         ScrollArea::vertical()
                             .max_height(max_height)
+                            .min_scrolled_height(500.0)
                             .show(ui, |ui| {
                                 ui.set_width(scroll_area_width);
                                 for (category, kinds) in categories {

@@ -5,7 +5,6 @@ pub fn init(ctx: &egui::Context) {
 
     style.visuals.widgets.active.bg_stroke = Stroke::NONE;
     style.visuals.widgets.hovered.bg_stroke = Stroke::NONE;
-    style.visuals.selection.stroke = Stroke::NONE;
     style.visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0, 0, 0, 0);
 
     style.interaction.selectable_labels = false;
