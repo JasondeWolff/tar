@@ -363,6 +363,8 @@ where
                 node_finder_area = node_finder_area.current_pos(pos);
             }
             node_finder_area.show(ui.ctx(), |ui| {
+                ui.set_min_size(vec2(0.0, 700.0));
+
                 if let Some(node_kind) = node_finder.show(ui, all_kinds, user_state) {
                     let new_node = self.graph.add_node(
                         node_kind.node_graph_label(user_state),

@@ -70,7 +70,7 @@ where
                 let mut query_submit = resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
 
                 let max_height = ui.input(|i| i.content_rect().height() * 0.5);
-                let scroll_area_width = resp.rect.width() - 30.0;
+                let scroll_area_width = resp.rect.width();
 
                 let all_kinds = all_kinds.all_kinds();
                 let mut categories: BTreeMap<String, Vec<&NodeTemplate>> = Default::default();
@@ -89,7 +89,7 @@ where
                 }
 
                 Frame::default()
-                    .inner_margin(vec2(10.0, 10.0))
+                    .inner_margin(vec2(0.0, 5.0))
                     .show(ui, |ui| {
                         ScrollArea::vertical()
                             .max_height(max_height)
