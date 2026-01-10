@@ -141,7 +141,11 @@ where
     where
         Self::Response: UserResponseTrait,
     {
-        ui.label(param_name);
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(param_name);
+            });
+        });
 
         Default::default()
     }

@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use egui::{self, DragValue};
+use egui::{self};
 use std::borrow::Cow;
 
 use crate::editor::node_graph::*;
@@ -295,15 +295,15 @@ impl WidgetValueTrait for MyValueType {
                 ui.label(param_name);
                 ui.horizontal(|ui| {
                     ui.label("x");
-                    ui.add(DragValue::new(&mut value.x));
+                    ui.add(egui::DragValue::new(&mut value.x));
                     ui.label("y");
-                    ui.add(DragValue::new(&mut value.y));
+                    ui.add(egui::DragValue::new(&mut value.y));
                 });
             }
             MyValueType::Scalar { value } => {
                 ui.horizontal(|ui| {
                     ui.label(param_name);
-                    ui.add(DragValue::new(value));
+                    ui.add(egui::DragValue::new(value));
                 });
             }
         }
