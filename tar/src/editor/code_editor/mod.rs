@@ -283,7 +283,9 @@ impl CodeEditor {
         visible_offset_y: f32,
     ) -> (egui::Rect, egui::Response, egui::Rect) {
         let width = self.calculate_editor_width(ui, font_id);
-        let height = line_height * self.doc.len_lines() as f32;
+        let height = ui
+            .available_height()
+            .max(line_height * self.doc.len_lines() as f32);
         let desired_size = egui::vec2(width, height);
 
         let (rect, mut response) =
@@ -586,23 +588,25 @@ impl CodeEditor {
         // Click to position cursor
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                let (char_idx, col) = self.pos_to_char_index(
-                    ui,
-                    font_id,
-                    pos,
-                    visible_rect,
-                    text_x,
-                    line_height,
-                    start_line,
-                );
+                if response.rect.contains(pos) {
+                    let (char_idx, col) = self.pos_to_char_index(
+                        ui,
+                        font_id,
+                        pos,
+                        visible_rect,
+                        text_x,
+                        line_height,
+                        start_line,
+                    );
 
-                self.cursor = char_idx;
-                self.desired_column = Some(col);
-                self.selection = None;
-                self.selection_anchor = None;
-                self.cursor_blink_offset = time;
+                    self.cursor = char_idx;
+                    self.desired_column = Some(col);
+                    self.selection = None;
+                    self.selection_anchor = None;
+                    self.cursor_blink_offset = time;
 
-                ui.memory_mut(|m| m.request_focus(response.id));
+                    ui.memory_mut(|m| m.request_focus(response.id));
+                }
             }
         }
 
