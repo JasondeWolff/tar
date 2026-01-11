@@ -24,7 +24,7 @@ pub type ConnLocations = std::collections::HashMap<InputId, Vec<Pos2>>;
 /// Rectangle containing each node.
 pub type NodeRects = std::collections::HashMap<NodeId, Rect>;
 
-const DISTANCE_TO_CONNECT: f32 = 20.0;
+const DISTANCE_TO_CONNECT: f32 = 10.0;
 const PORT_INTERACT_DIAMETER: f32 = 30.0;
 const PORT_DIAMETER: f32 = 13.0;
 
@@ -102,6 +102,8 @@ pub struct GraphNodeWidget<'a, NodeData, DataType, ValueType> {
     pub ongoing_drag: Option<(NodeId, AnyParameterId)>,
     pub selected: bool,
     pub pan: Vec2,
+    /// Last known pointer position, used for touch release detection
+    pub last_pointer_pos: Option<Pos2>,
 }
 
 impl<NodeData, DataType, ValueType, NodeTemplate, UserResponse, UserState, CategoryType>
@@ -333,18 +335,16 @@ where
 
         // Get pointer position from either mouse hover or touch
         // For touch devices, we use the primary touch position when available
-        let cursor_pos = ui.ctx().input(|i| {
-            // First try to get touch position
-            if let Some(touch) = i.multi_touch() {
-                // multi_touch gives us gesture info, but for position we need pointer
-                i.pointer.interact_pos().unwrap_or(Pos2::ZERO)
-            } else if let Some(pos) = i.pointer.interact_pos() {
-                // interact_pos works for both mouse clicks and touch
-                pos
-            } else {
-                // Fall back to hover position for mouse-only scenarios
-                i.pointer.hover_pos().unwrap_or(editor_rect.center())
-            }
+        // Also get the last known position for touch release detection
+        let (cursor_pos, last_pointer_pos) = ui.ctx().input(|i| {
+            let current_pos = i.pointer.interact_pos().or_else(|| i.pointer.hover_pos());
+
+            // latest_pos() gives us the last known position, crucial for touch release
+            let last_pos = i.pointer.latest_pos().or(current_pos);
+
+            let effective_pos = current_pos.or(last_pos).unwrap_or(editor_rect.center());
+
+            (effective_pos, last_pos)
         });
 
         // Check if pointer is in editor - works for both mouse and touch
@@ -388,6 +388,7 @@ where
                 ongoing_drag: self.connection_in_progress,
                 selected: self.selected_nodes.contains(&node_id),
                 pan: self.pan_zoom.pan + editor_rect.min.to_vec2(),
+                last_pointer_pos,
             }
             .show(&self.pan_zoom, ui, user_state);
 
@@ -1025,6 +1026,7 @@ where
             wide_port: bool,
             connections: usize,
             max_connections: usize,
+            last_pointer_pos: Option<Pos2>,
         ) where
             DataType: DataTypeTrait<UserState>,
             UserResponse: UserResponseTrait,
@@ -1068,12 +1070,21 @@ where
 
             let resp = ui.allocate_rect(port_rect, sense);
 
-            // Check if the distance between the port and the mouse is the distance to connect
-            let close_enough = if let Some(pointer_pos) = ui.ctx().pointer_hover_pos() {
-                port_rect.center().distance(pointer_pos) < DISTANCE_TO_CONNECT * pan_zoom.zoom
-            } else {
-                false
-            };
+            // Check if the distance between the port and the pointer is the distance to connect
+            // Use interact_pos for touch support, fall back to hover_pos for mouse,
+            // and finally use last_pointer_pos for touch release detection
+            let close_enough = ui.ctx().input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .or_else(|| i.pointer.hover_pos())
+                    .or_else(|| i.pointer.latest_pos())
+                    .or(last_pointer_pos)
+                    .map(|pointer_pos| {
+                        port_rect.center().distance(pointer_pos)
+                            < DISTANCE_TO_CONNECT * pan_zoom.zoom
+                    })
+                    .unwrap_or(false)
+            });
 
             let port_color = if close_enough {
                 Color32::WHITE
@@ -1115,8 +1126,16 @@ where
                 }
             }
 
-            let nearest_hook = ui
-                .input(|in_state| in_state.pointer.hover_pos())
+            // Get pointer position for nearest hook calculation - use same fallback chain
+            let pointer_pos_for_hook = ui.ctx().input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .or_else(|| i.pointer.hover_pos())
+                    .or_else(|| i.pointer.latest_pos())
+                    .or(last_pointer_pos)
+            });
+
+            let nearest_hook = pointer_pos_for_hook
                 .and_then(|mouse_pos| match param_id {
                     AnyParameterId::Input(input) => Some((mouse_pos, input)),
                     AnyParameterId::Output(_) => None,
@@ -1215,6 +1234,7 @@ where
                     max_connections > 1,
                     self.graph.connections(*param).len(),
                     max_connections,
+                    self.last_pointer_pos,
                 );
             }
         }
@@ -1241,6 +1261,7 @@ where
                 false,
                 0,
                 1,
+                self.last_pointer_pos,
             );
         }
 
