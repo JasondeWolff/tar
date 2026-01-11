@@ -85,8 +85,8 @@ pub enum MyNodeTemplate {
 /// mechanism allows creating additional side effects from user code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MyResponse {
-    SetActiveNode(NodeId),
-    ClearActiveNode,
+    SetInspectNode(NodeId),
+    ClearInspectNode,
 }
 
 /// The graph 'global' state. This state struct is passed around to the node and
@@ -94,7 +94,7 @@ pub enum MyResponse {
 /// the user. For this example, we use it to keep track of the 'active' node.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct MyGraphState {
-    pub active_node: Option<NodeId>,
+    pub inspect_node: Option<NodeId>,
 }
 
 // =========== Then, you need to implement some traits ============
@@ -341,7 +341,7 @@ impl NodeDataTrait for MyNodeData {
 
         let mut responses = vec![];
         let is_active = user_state
-            .active_node
+            .inspect_node
             .map(|id| id == node_id)
             .unwrap_or(false);
 
@@ -350,15 +350,23 @@ impl NodeDataTrait for MyNodeData {
         // the library only makes the responses available to you after the graph
         // has been drawn. See below at the update method for an example.
         if !is_active {
-            if ui.button("👁 Set active").clicked() {
-                responses.push(NodeResponse::User(MyResponse::SetActiveNode(node_id)));
+            if ui
+                .button(egui::RichText::new(format!(
+                    "{} Inspect",
+                    egui_phosphor::regular::EYE
+                )))
+                .clicked()
+            {
+                responses.push(NodeResponse::User(MyResponse::SetInspectNode(node_id)));
             }
         } else {
-            let button =
-                egui::Button::new(egui::RichText::new("👁 Active").color(egui::Color32::BLACK))
-                    .fill(egui::Color32::GOLD);
+            let button = egui::Button::new(
+                egui::RichText::new(format!("{} Inspect", egui_phosphor::regular::EYE_SLASH))
+                    .color(egui::Color32::BLACK),
+            )
+            .fill(egui::Color32::GOLD);
             if ui.add(button).clicked() {
-                responses.push(NodeResponse::User(MyResponse::ClearActiveNode));
+                responses.push(NodeResponse::User(MyResponse::ClearInspectNode));
             }
         }
 
@@ -406,8 +414,8 @@ impl RenderGraphTab {
             // connection is created
             if let NodeResponse::User(user_event) = node_response {
                 match user_event {
-                    MyResponse::SetActiveNode(node) => self.user_state.active_node = Some(node),
-                    MyResponse::ClearActiveNode => self.user_state.active_node = None,
+                    MyResponse::SetInspectNode(node) => self.user_state.inspect_node = Some(node),
+                    MyResponse::ClearInspectNode => self.user_state.inspect_node = None,
                 }
             }
         }

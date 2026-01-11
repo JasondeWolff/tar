@@ -211,7 +211,12 @@ impl CodeEditor {
         self.setup_event_filter(ui, response.id);
         let response = response.on_hover_cursor(egui::CursorIcon::Text);
 
-        self.handle_touch_scroll(ui, time, delta_time);
+        if response.has_focus() {
+            self.handle_touch_scroll(ui, time, delta_time);
+        } else {
+            self.touch_scroll_velocity = egui::Vec2::ZERO;
+        }
+
         self.handle_mouse_input(
             ui,
             &response,
