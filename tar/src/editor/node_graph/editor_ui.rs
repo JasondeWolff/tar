@@ -24,7 +24,9 @@ pub type ConnLocations = std::collections::HashMap<InputId, Vec<Pos2>>;
 /// Rectangle containing each node.
 pub type NodeRects = std::collections::HashMap<NodeId, Rect>;
 
-const DISTANCE_TO_CONNECT: f32 = 10.0;
+const DISTANCE_TO_CONNECT: f32 = 20.0;
+const PORT_INTERACT_DIAMETER: f32 = 30.0;
+const PORT_DIAMETER: f32 = 13.0;
 
 /// Nodes communicate certain events to the parent graph when drawn. There is
 /// one special `User` variant which can be used by users as the return value
@@ -289,13 +291,7 @@ where
         // (so for windows it will use up to the resizeably set limit
         // and for a Panel it will fill it completely)
         let editor_rect = ui.max_rect();
-        let resp = ui.allocate_rect(editor_rect, Sense::hover());
-
-        let cursor_pos = ui
-            .ctx()
-            .input(|i| i.pointer.hover_pos().unwrap_or(Pos2::ZERO));
-        let mut cursor_in_editor = resp.contains_pointer();
-        let mut cursor_in_finder = false;
+        let _ = ui.allocate_rect(editor_rect, Sense::hover());
 
         // Gets filled with the node metrics as they are drawn
         let mut port_locations = PortLocations::new();
@@ -324,7 +320,51 @@ where
 
         // Allocate rect before the nodes, otherwise this will block the interaction
         // with the nodes.
-        let r = ui.allocate_rect(ui.min_rect(), Sense::click().union(Sense::drag()));
+        let mut r = ui.allocate_rect(ui.min_rect(), Sense::click().union(Sense::click_and_drag()));
+        r.flags -= egui::response::Flags::FAKE_PRIMARY_CLICKED;
+
+        if ui.input(|i| i.pointer.any_pressed()) {
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                if r.rect.contains(pos) {
+                    ui.memory_mut(|m| m.request_focus(r.id));
+                }
+            }
+        }
+
+        // Get pointer position from either mouse hover or touch
+        // For touch devices, we use the primary touch position when available
+        let cursor_pos = ui.ctx().input(|i| {
+            // First try to get touch position
+            if let Some(touch) = i.multi_touch() {
+                // multi_touch gives us gesture info, but for position we need pointer
+                i.pointer.interact_pos().unwrap_or(Pos2::ZERO)
+            } else if let Some(pos) = i.pointer.interact_pos() {
+                // interact_pos works for both mouse clicks and touch
+                pos
+            } else {
+                // Fall back to hover position for mouse-only scenarios
+                i.pointer.hover_pos().unwrap_or(editor_rect.center())
+            }
+        });
+
+        // Check if pointer is in editor - works for both mouse and touch
+        // For touch, we consider the pointer "in editor" if there's an active touch in the area
+        let mut cursor_in_editor = ui.ctx().input(|i| {
+            // Check for touch interaction in the editor rect
+            let touch_in_editor = i
+                .pointer
+                .interact_pos()
+                .map(|pos| editor_rect.contains(pos))
+                .unwrap_or(false);
+
+            // Also check hover for mouse
+            let hover_in_editor = r.contains_pointer();
+
+            touch_in_editor || hover_in_editor
+        });
+        let mut cursor_in_finder = false;
+
+        // Handle clicks - works for both mouse and touch (touch triggers primary click)
         if r.clicked() {
             click_on_background = true;
         } else if r.drag_started() {
@@ -608,44 +648,82 @@ where
         // treatment here.
         delayed_responses.extend(extra_responses);
 
-        /* Mouse input handling */
+        /* Mouse and touch input handling */
 
-        // This locks the context, so don't hold on to it for too long.
-        let mouse = &ui.ctx().input(|i| i.pointer.clone());
+        // Get input state - works for both mouse and touch
+        let (
+            any_released,
+            primary_down,
+            primary_released,
+            secondary_released,
+            pointer_delta,
+            num_touches,
+            space_pressed,
+            escape_pressed,
+            is_command_only,
+            middle_down,
+        ) = ui.ctx().input(|i| {
+            let num_touches = i.multi_touch().map(|mt| mt.num_touches).unwrap_or(0);
+            (
+                i.pointer.any_released(),
+                i.pointer.primary_down(),
+                i.pointer.primary_released(),
+                i.pointer.secondary_released(),
+                i.pointer.delta(),
+                num_touches,
+                i.key_pressed(Key::Space),
+                i.key_pressed(Key::Escape),
+                i.modifiers.command_only(),
+                i.pointer.middle_down(),
+            )
+        });
 
-        if mouse.any_released() && self.connection_in_progress.is_some() {
+        // Release connection in progress when pointer is released (mouse or touch)
+        if any_released && self.connection_in_progress.is_some() {
             self.connection_in_progress = None;
         }
 
-        if mouse.secondary_released() && cursor_in_editor && !cursor_in_finder {
+        // Open node finder on:
+        // - Secondary mouse click (right-click)
+        // - Space key press
+        let can_open_finder = !cursor_in_finder && r.has_focus();
+        if secondary_released && cursor_in_editor && can_open_finder {
             self.node_finder = Some(NodeFinder::new_at(cursor_pos));
+        } else if space_pressed && can_open_finder {
+            self.node_finder = Some(NodeFinder::new_at(r.rect.center()));
         }
-        if ui.ctx().input(|i| i.key_pressed(Key::Escape)) {
+
+        // Close node finder on Escape
+        if escape_pressed {
             self.node_finder = None;
         }
 
-        if r.dragged()
-            && ui
-                .ctx()
-                .input(|i| i.pointer.middle_down() || i.modifiers.command_only())
-        {
-            self.pan_zoom.pan += ui.ctx().input(|i| i.pointer.delta());
+        // Pan the canvas:
+        // - Middle mouse button drag
+        // - Cmd/Ctrl + drag (mouse)
+        // - Two-finger drag (touch) - handled via pointer delta when 2 touches
+        let is_panning = r.dragged() && (middle_down || is_command_only || num_touches >= 2);
+        if is_panning {
+            self.pan_zoom.pan += pointer_delta;
+            self.ongoing_box_selection = None;
         }
 
         // Deselect and deactivate finder if the editor background is clicked,
-        // *or* if the mouse clicks off the ui
-        if click_on_background || (mouse.any_click() && !cursor_in_editor) {
+        // *or* if the pointer clicks/taps off the ui
+        let any_click = ui.ctx().input(|i| i.pointer.any_click());
+        if click_on_background || (any_click && !cursor_in_editor) {
             self.selected_nodes = Vec::new();
             self.node_finder = None;
         }
 
-        if drag_started_on_background
-            && mouse.primary_down()
-            && !ui.ctx().input(|i| i.modifiers.command_only())
-        {
+        // Start box selection on primary drag (mouse or single-finger touch)
+        // but not when panning (two-finger or command-drag)
+        if drag_started_on_background && primary_down && !is_command_only && num_touches < 2 {
             self.ongoing_box_selection = Some(cursor_pos);
         }
-        if mouse.primary_released() || drag_released_on_background {
+
+        // End box selection when primary is released or drag stops
+        if primary_released || drag_released_on_background {
             self.ongoing_box_selection = None;
         }
 
@@ -927,7 +1005,7 @@ where
 
                 5.0 + (10.0 * hooks as f32).max(10.0)
             } else {
-                10.0
+                PORT_DIAMETER
             }
         }
 
@@ -956,7 +1034,11 @@ where
 
             let port_rect = Rect::from_center_size(
                 port_pos,
-                vec2(10.0, port_height(wide_port, connections, max_connections)) * pan_zoom.zoom,
+                vec2(
+                    PORT_INTERACT_DIAMETER,
+                    port_height(wide_port, connections, max_connections)
+                        * (PORT_INTERACT_DIAMETER / PORT_DIAMETER),
+                ) * pan_zoom.zoom,
             );
 
             let port_full = connections == max_connections;
@@ -972,8 +1054,8 @@ where
                 (0..inner_ports)
                     .map(|k| {
                         port_rect.center_top()
-                            + Vec2::new(0.0, 5.0 * pan_zoom.zoom)
-                            + Vec2::new(0.0, 10.0 * pan_zoom.zoom) * k as f32
+                            + Vec2::new(0.0, (PORT_INTERACT_DIAMETER / 2.0) * pan_zoom.zoom)
+                            + Vec2::new(0.0, PORT_INTERACT_DIAMETER * pan_zoom.zoom) * k as f32
                     })
                     .collect(),
             );
@@ -1005,10 +1087,21 @@ where
             } else {
                 ui.painter().circle(
                     port_rect.center(),
-                    5.0 * pan_zoom.zoom,
+                    (PORT_DIAMETER / 2.0) * pan_zoom.zoom,
                     port_color,
                     Stroke::NONE,
                 );
+
+                if let AnyParameterId::Input(_) = param_id {
+                    if connections == 0 {
+                        ui.painter().circle(
+                            port_rect.center(),
+                            (PORT_DIAMETER / 2.0) * 0.5 * pan_zoom.zoom,
+                            port_color.lighten(0.25),
+                            Stroke::NONE,
+                        );
+                    }
+                }
             }
 
             if connections > 0 {
