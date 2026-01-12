@@ -319,3 +319,150 @@ pub fn empty_bind_group(device: &wgpu::Device) -> wgpu::BindGroup {
         v.as_ref().unwrap().clone()
     })
 }
+
+#[repr(C)]
+#[derive(
+    Default,
+    Copy,
+    Clone,
+    Debug,
+    Hash,
+    Eq,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::EnumIter,
+    strum::Display,
+)]
+pub enum BasicColorTextureFormat {
+    // Normal 8 bit formats
+    /// Red channel only. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    R8Unorm,
+    /// Red channel only. 8 bit integer per channel. [&minus;127, 127] converted to/from float [&minus;1, 1] in shader.
+    R8Snorm,
+    /// Red channel only. 8 bit integer per channel. Unsigned in shader.
+    R8Uint,
+    /// Red channel only. 8 bit integer per channel. Signed in shader.
+    R8Sint,
+
+    // Normal 16 bit formats
+    /// Red channel only. 16 bit integer per channel. Unsigned in shader.
+    R16Uint,
+    /// Red channel only. 16 bit integer per channel. Signed in shader.
+    R16Sint,
+    /// Red channel only. 16 bit float per channel. Float in shader.
+    R16Float,
+    /// Red and green channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    Rg8Unorm,
+    /// Red and green channels. 8 bit integer per channel. [&minus;127, 127] converted to/from float [&minus;1, 1] in shader.
+    Rg8Snorm,
+    /// Red and green channels. 8 bit integer per channel. Unsigned in shader.
+    Rg8Uint,
+    /// Red and green channels. 8 bit integer per channel. Signed in shader.
+    Rg8Sint,
+
+    // Normal 32 bit formats
+    /// Red channel only. 32 bit integer per channel. Unsigned in shader.
+    R32Uint,
+    /// Red channel only. 32 bit integer per channel. Signed in shader.
+    R32Sint,
+    /// Red channel only. 32 bit float per channel. Float in shader.
+    R32Float,
+    /// Red and green channels. 16 bit integer per channel. Unsigned in shader.
+    Rg16Uint,
+    /// Red and green channels. 16 bit integer per channel. Signed in shader.
+    Rg16Sint,
+    /// Red and green channels. 16 bit float per channel. Float in shader.
+    Rg16Float,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    Rgba8Unorm,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    Rgba8UnormSrgb,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. [&minus;127, 127] converted to/from float [&minus;1, 1] in shader.
+    Rgba8Snorm,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. Unsigned in shader.
+    Rgba8Uint,
+    /// Red, green, blue, and alpha channels. 8 bit integer per channel. Signed in shader.
+    Rgba8Sint,
+    /// Blue, green, red, and alpha channels. 8 bit integer per channel. [0, 255] converted to/from float [0, 1] in shader.
+    Bgra8Unorm,
+    /// Blue, green, red, and alpha channels. 8 bit integer per channel. Srgb-color [0, 255] converted to/from linear-color float [0, 1] in shader.
+    Bgra8UnormSrgb,
+
+    // Packed 32 bit formats
+    /// Packed unsigned float with 9 bits mantisa for each RGB component, then a common 5 bits exponent
+    Rgb9e5Ufloat,
+    /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. Unsigned in shader.
+    Rgb10a2Uint,
+    /// Red, green, blue, and alpha channels. 10 bit integer for RGB channels, 2 bit integer for alpha channel. [0, 1023] ([0, 3] for alpha) converted to/from float [0, 1] in shader.
+    Rgb10a2Unorm,
+    /// Red, green, and blue channels. 11 bit float with no sign bit for RG channels. 10 bit float with no sign bit for blue channel. Float in shader.
+    Rg11b10Ufloat,
+
+    // Normal 64 bit formats
+    /// Red and green channels. 32 bit integer per channel. Unsigned in shader.
+    Rg32Uint,
+    /// Red and green channels. 32 bit integer per channel. Signed in shader.
+    Rg32Sint,
+    /// Red and green channels. 32 bit float per channel. Float in shader.
+    Rg32Float,
+    /// Red, green, blue, and alpha channels. 16 bit integer per channel. Unsigned in shader.
+    Rgba16Uint,
+    /// Red, green, blue, and alpha channels. 16 bit integer per channel. Signed in shader.
+    Rgba16Sint,
+    /// Red, green, blue, and alpha channels. 16 bit float per channel. Float in shader.
+    #[default]
+    Rgba16Float,
+
+    // Normal 128 bit formats
+    /// Red, green, blue, and alpha channels. 32 bit integer per channel. Unsigned in shader.
+    Rgba32Uint,
+    /// Red, green, blue, and alpha channels. 32 bit integer per channel. Signed in shader.
+    Rgba32Sint,
+    /// Red, green, blue, and alpha channels. 32 bit float per channel. Float in shader.
+    Rgba32Float,
+}
+
+impl From<BasicColorTextureFormat> for wgpu::TextureFormat {
+    fn from(format: BasicColorTextureFormat) -> Self {
+        match format {
+            BasicColorTextureFormat::R8Unorm => wgpu::TextureFormat::R8Unorm,
+            BasicColorTextureFormat::R8Snorm => wgpu::TextureFormat::R8Snorm,
+            BasicColorTextureFormat::R8Uint => wgpu::TextureFormat::R8Uint,
+            BasicColorTextureFormat::R8Sint => wgpu::TextureFormat::R8Sint,
+            BasicColorTextureFormat::R16Uint => wgpu::TextureFormat::R16Uint,
+            BasicColorTextureFormat::R16Sint => wgpu::TextureFormat::R16Sint,
+            BasicColorTextureFormat::R16Float => wgpu::TextureFormat::R16Float,
+            BasicColorTextureFormat::Rg8Unorm => wgpu::TextureFormat::Rg8Unorm,
+            BasicColorTextureFormat::Rg8Snorm => wgpu::TextureFormat::Rg8Snorm,
+            BasicColorTextureFormat::Rg8Uint => wgpu::TextureFormat::Rg8Uint,
+            BasicColorTextureFormat::Rg8Sint => wgpu::TextureFormat::Rg8Sint,
+            BasicColorTextureFormat::R32Uint => wgpu::TextureFormat::R32Uint,
+            BasicColorTextureFormat::R32Sint => wgpu::TextureFormat::R32Sint,
+            BasicColorTextureFormat::R32Float => wgpu::TextureFormat::R32Float,
+            BasicColorTextureFormat::Rg16Uint => wgpu::TextureFormat::Rg16Uint,
+            BasicColorTextureFormat::Rg16Sint => wgpu::TextureFormat::Rg16Sint,
+            BasicColorTextureFormat::Rg16Float => wgpu::TextureFormat::Rg16Float,
+            BasicColorTextureFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
+            BasicColorTextureFormat::Rgba8UnormSrgb => wgpu::TextureFormat::Rgba8UnormSrgb,
+            BasicColorTextureFormat::Rgba8Snorm => wgpu::TextureFormat::Rgba8Snorm,
+            BasicColorTextureFormat::Rgba8Uint => wgpu::TextureFormat::Rgba8Uint,
+            BasicColorTextureFormat::Rgba8Sint => wgpu::TextureFormat::Rgba8Sint,
+            BasicColorTextureFormat::Bgra8Unorm => wgpu::TextureFormat::Bgra8Unorm,
+            BasicColorTextureFormat::Bgra8UnormSrgb => wgpu::TextureFormat::Bgra8UnormSrgb,
+            BasicColorTextureFormat::Rgb9e5Ufloat => wgpu::TextureFormat::Rgb9e5Ufloat,
+            BasicColorTextureFormat::Rgb10a2Uint => wgpu::TextureFormat::Rgb10a2Uint,
+            BasicColorTextureFormat::Rgb10a2Unorm => wgpu::TextureFormat::Rgb10a2Unorm,
+            BasicColorTextureFormat::Rg11b10Ufloat => wgpu::TextureFormat::Rg11b10Ufloat,
+            BasicColorTextureFormat::Rg32Uint => wgpu::TextureFormat::Rg32Uint,
+            BasicColorTextureFormat::Rg32Sint => wgpu::TextureFormat::Rg32Sint,
+            BasicColorTextureFormat::Rg32Float => wgpu::TextureFormat::Rg32Float,
+            BasicColorTextureFormat::Rgba16Uint => wgpu::TextureFormat::Rgba16Uint,
+            BasicColorTextureFormat::Rgba16Sint => wgpu::TextureFormat::Rgba16Sint,
+            BasicColorTextureFormat::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
+            BasicColorTextureFormat::Rgba32Uint => wgpu::TextureFormat::Rgba32Uint,
+            BasicColorTextureFormat::Rgba32Sint => wgpu::TextureFormat::Rgba32Sint,
+            BasicColorTextureFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
+        }
+    }
+}
