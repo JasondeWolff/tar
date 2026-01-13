@@ -289,16 +289,6 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_history_tex_2d = |graph: &mut MyGraph, name: &str| {
-            graph.add_input_param(
-                node_id,
-                name.to_string(),
-                RgDataType::HistoryTex2D,
-                RgValueType::HistoryTex2D(HistoryTex2D::default()),
-                InputParamKind::ConnectionOnly,
-                true,
-            );
-        };
         let input_tex_2d_array = |graph: &mut MyGraph, name: &str| {
             graph.add_input_param(
                 node_id,
@@ -319,16 +309,6 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_history_tex_3d = |graph: &mut MyGraph, name: &str| {
-            graph.add_input_param(
-                node_id,
-                name.to_string(),
-                RgDataType::HistoryTex3D,
-                RgValueType::HistoryTex3D(HistoryTex3D::default()),
-                InputParamKind::ConnectionOnly,
-                true,
-            );
-        };
         let input_tex_3d_array = |graph: &mut MyGraph, name: &str| {
             graph.add_input_param(
                 node_id,
@@ -343,17 +323,11 @@ impl NodeTemplateTrait for RgNodeTemplate {
         let output_tex_2d = |graph: &mut MyGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex2D);
         };
-        let output_history_tex_2d = |graph: &mut MyGraph, name: &str| {
-            graph.add_output_param(node_id, name.to_string(), RgDataType::HistoryTex2D);
-        };
         let output_tex_2d_array = |graph: &mut MyGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex2DArray);
         };
         let output_tex_3d = |graph: &mut MyGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3D);
-        };
-        let output_history_tex_3d = |graph: &mut MyGraph, name: &str| {
-            graph.add_output_param(node_id, name.to_string(), RgDataType::HistoryTex3D);
         };
         let output_tex_3d_array = |graph: &mut MyGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3DArray);
@@ -365,26 +339,28 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
                 input_bool(graph, "persistent");
-                output_tex_2d(graph, "out");
+                output_tex_2d(graph, "tex");
             }
             RgNodeTemplate::HistoryScreenTex => {
                 input_screen_tex_resolution(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
-                output_history_tex_2d(graph, "out");
+                output_tex_2d(graph, "current tex");
+                output_tex_2d(graph, "previous tex");
             }
             RgNodeTemplate::Tex2D => {
                 input_uint2(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
                 input_bool(graph, "persistent");
-                output_tex_2d(graph, "out");
+                output_tex_2d(graph, "tex");
             }
             RgNodeTemplate::HistoryTex2D => {
                 input_uint2(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
-                output_tex_2d(graph, "out");
+                output_tex_2d(graph, "current tex");
+                output_tex_2d(graph, "previous tex");
             }
             RgNodeTemplate::Tex2DArray => {
                 input_uint2(graph, "resolution");
@@ -392,20 +368,21 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
                 input_bool(graph, "persistent");
-                output_tex_2d(graph, "out");
+                output_tex_2d_array(graph, "tex");
             }
             RgNodeTemplate::Tex3D => {
                 input_uint3(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
                 input_bool(graph, "persistent");
-                output_tex_2d(graph, "out");
+                output_tex_3d(graph, "tex");
             }
             RgNodeTemplate::HistoryTex3D => {
                 input_uint3(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
-                output_tex_2d(graph, "out");
+                output_tex_3d(graph, "current tex");
+                output_tex_3d(graph, "previous tex");
             }
             RgNodeTemplate::Tex3DArray => {
                 input_uint3(graph, "resolution");
@@ -413,7 +390,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
                 input_bool(graph, "persistent");
-                output_tex_2d(graph, "out");
+                output_tex_3d_array(graph, "tex");
             }
             RgNodeTemplate::GraphicsPass => {
                 input_tex_2d(graph, "in");
@@ -513,12 +490,9 @@ impl WidgetValueTrait for RgValueType {
                 });
             }
             Self::ScreenTex(_)
-            | Self::HistoryScreenTex(_)
             | Self::Tex2D(_)
-            | Self::HistoryTex2D(_)
             | Self::Tex2DArray(_)
             | Self::Tex3D(_)
-            | Self::HistoryTex3D(_)
             | Self::Tex3DArray(_) => {
                 ui.label(param_name);
             }

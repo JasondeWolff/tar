@@ -122,12 +122,9 @@ pub enum RgValueType {
     TextureFormat(BasicColorTextureFormat),
 
     ScreenTex(ScreenTex),
-    HistoryScreenTex(HistoryScreenTex),
     Tex2D(Tex2D),
-    HistoryTex2D(HistoryTex2D),
     Tex2DArray(Tex2DArray),
     Tex3D(Tex3D),
-    HistoryTex3D(HistoryTex3D),
     Tex3DArray(Tex3DArray),
 }
 
