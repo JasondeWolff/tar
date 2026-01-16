@@ -4,6 +4,7 @@ use crate::{
         render_graph::RenderGraphTab, viewport::ViewportTab,
     },
     egui_util::KeyModifiers,
+    project::Project,
 };
 
 pub mod code_editor;
@@ -45,11 +46,15 @@ impl std::fmt::Display for Tab {
 
 pub struct TabViewer<'a> {
     key_modifiers: &'a KeyModifiers,
+    project: &'a mut Project,
 }
 
 impl<'a> TabViewer<'a> {
-    pub fn new(key_modifiers: &'a KeyModifiers) -> Self {
-        Self { key_modifiers }
+    pub fn new(key_modifiers: &'a KeyModifiers, project: &'a mut Project) -> Self {
+        Self {
+            key_modifiers,
+            project,
+        }
     }
 }
 
@@ -75,7 +80,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui);
             }
             Tab::RenderGraph(tab) => {
-                tab.ui(ui);
+                tab.ui(ui, self.project);
             }
             Tab::CodeEditor(tab) => {
                 tab.ui(ui, self.key_modifiers);

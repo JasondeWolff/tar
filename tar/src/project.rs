@@ -185,11 +185,14 @@ impl CodeFiles {
     }
 }
 
+// TODO: after deserialize (so load), also override the CodeFiles sources with what's on disk, if it can be found
+// so basically a soft load, don't care if it fails to load any files, we still got the source from the project
+// after this step, also perform a save, to again make sure the missing files on disk (but still present in the project) are pooped out to disk
 #[derive(Serialize, Deserialize)]
 pub struct Project {
     path: PathBuf,
-    code_files: CodeFiles,
     render_graph: RenderGraph,
+    code_files: CodeFiles,
 }
 
 impl Project {
@@ -204,4 +207,62 @@ impl Project {
             render_graph,
         }
     }
+
+    pub fn render_graph_mut(&mut self) -> &mut RenderGraph {
+        &mut self.render_graph
+    }
+}
+
+#[cfg(target_os = "android")]
+pub fn default_project_path() -> Option<PathBuf> {
+    get_external_files_dir()
+}
+
+#[cfg(target_os = "android")]
+fn get_external_files_dir() -> Option<PathBuf> {
+    use jni::objects::{JObject, JValue};
+    use ndk_context::android_context;
+
+    let ctx = android_context();
+
+    // Get JavaVM from the global context
+    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()).ok()? };
+    let mut env = vm.attach_current_thread().ok()?;
+
+    // Get the activity/context object
+    let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+
+    // Call getExternalFilesDir(null)
+    let null_obj = JObject::null();
+    let files_dir = env
+        .call_method(
+            &context,
+            "getExternalFilesDir",
+            "(Ljava/lang/String;)Ljava/io/File;",
+            &[JValue::Object(&null_obj)],
+        )
+        .ok()?
+        .l()
+        .ok()?;
+
+    if files_dir.is_null() {
+        return None;
+    }
+
+    // Call getAbsolutePath() on the File object
+    let path_jstring = env
+        .call_method(&files_dir, "getAbsolutePath", "()Ljava/lang/String;", &[])
+        .ok()?
+        .l()
+        .ok()?;
+
+    let path_str = env.get_string((&path_jstring).into()).ok()?;
+
+    Some(PathBuf::from(path_str.into()))
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn default_project_path() -> Option<PathBuf> {
+    directories::UserDirs::new()
+        .and_then(|user_dirs| user_dirs.document_dir().map(|dir| dir.to_path_buf()))
 }

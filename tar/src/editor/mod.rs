@@ -1,19 +1,27 @@
+use std::{any::TypeId, collections::HashMap};
+
 use egui_tiles::{Tiles, Tree};
 
 use crate::{
-    editor::tabs::{
-        code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
-        render_graph::RenderGraphTab, viewport::ViewportTab, Tab, TabViewer,
+    editor::{
+        popup::{create_project::CreateProject, Popup},
+        tabs::{
+            code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
+            render_graph::RenderGraphTab, viewport::ViewportTab, Tab, TabViewer,
+        },
     },
     egui_util::KeyModifiers,
+    project::Project,
 };
 
 pub mod code_editor;
 pub mod node_graph;
+pub mod popup;
 pub mod tabs;
 
 pub struct Editor {
     tree: Tree<Tab>,
+    popups: HashMap<TypeId, Box<dyn Popup>>,
 }
 
 impl Default for Editor {
@@ -71,10 +79,43 @@ impl Editor {
 
         let tree = Tree::new("my_tree", root, tiles);
 
-        Self { tree }
+        Self {
+            tree,
+            popups: HashMap::new(),
+        }
     }
 
-    pub fn ui(&mut self, egui_ctx: &mut egui::Context, key_modifiers: &KeyModifiers) {
+    fn open_popup<T: Popup + 'static>(&mut self, popup: T) -> bool {
+        let type_id = TypeId::of::<T>();
+
+        #[allow(clippy::map_entry)]
+        if !self.popups.contains_key(&type_id) {
+            self.popups.insert(type_id, Box::new(popup));
+            true
+        } else {
+            false
+        }
+    }
+
+    fn popup_ui(&mut self, ctx: &egui::Context, project: &mut Option<Project>) {
+        let mut to_remove = Vec::new();
+        for popup in self.popups.values_mut() {
+            if !popup.ui(ctx, project) {
+                to_remove.push(popup.as_ref().type_id());
+            }
+        }
+
+        for type_id in to_remove {
+            self.popups.remove(&type_id);
+        }
+    }
+
+    pub fn ui(
+        &mut self,
+        egui_ctx: &mut egui::Context,
+        project: &mut Option<Project>,
+        key_modifiers: &KeyModifiers,
+    ) {
         egui::TopBottomPanel::top("top_bar").show(egui_ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
@@ -85,6 +126,8 @@ impl Editor {
                             .clicked()
                         {
                             ui.close();
+
+                            self.open_popup(CreateProject::default());
                         }
 
                         if ui
@@ -159,7 +202,12 @@ impl Editor {
                     .outer_margin(0.0),
             )
             .show(egui_ctx, |ui| {
-                self.tree.ui(&mut TabViewer::new(key_modifiers), ui);
+                if let Some(project) = project {
+                    self.tree
+                        .ui(&mut TabViewer::new(key_modifiers, project), ui);
+                }
             });
+
+        self.popup_ui(egui_ctx, project);
     }
 }

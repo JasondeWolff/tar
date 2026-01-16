@@ -14,6 +14,7 @@ bytemuck.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
 egui.workspace = true
+egui-file-dialog.workspace = true
 #egui_node_graph2.workspace = true
 egui-phosphor.workspace = true
 egui_tiles.workspace = true
@@ -36,6 +37,7 @@ uuid.workspace = true
 wgpu.workspace = true
 
 [target.'cfg(not(target_os = "android"))'.dependencies]
+directories.workspace = true
 winit.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]

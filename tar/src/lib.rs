@@ -1,23 +1,25 @@
 use std::sync::Arc;
 
 use crate::{
-    app::{Runtime, Static},
     editor::Editor,
     egui_util::KeyModifiers,
+    project::Project,
+    runtime::{Runtime, Static},
     time::FpsCounter,
 };
 
-pub mod app;
 pub mod editor;
 pub mod egui_util;
 pub mod project;
 pub mod render_graph;
+pub mod runtime;
 pub mod time;
 pub mod wgpu_util;
 
 pub struct App {
     fps_counter: FpsCounter,
     editor: Editor,
+    project: Option<Project>,
 }
 
 impl App {
@@ -25,13 +27,14 @@ impl App {
         Self {
             fps_counter: FpsCounter::new(),
             editor: Editor::new(),
+            project: None,
         }
     }
 }
 
 pub struct RenderPipeline {}
 
-impl app::RenderPipeline<App> for RenderPipeline {
+impl runtime::RenderPipeline<App> for RenderPipeline {
     fn required_limits() -> wgpu::Limits {
         wgpu::Limits {
             max_texture_dimension_2d: 1024 * 8,
@@ -75,7 +78,7 @@ impl app::RenderPipeline<App> for RenderPipeline {
             );
         }
 
-        app.editor.ui(egui_ctx, key_modifiers);
+        app.editor.ui(egui_ctx, &mut app.project, key_modifiers);
     }
 }
 

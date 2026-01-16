@@ -26,8 +26,10 @@ clap = { version = "4.5.35", default-features = true, features = ["derive"] }
 # console_error_panic_hook = { version = "0.1.7", default-features = true }
 # console_log = { version = "1.0.0", default-features = true }
 # ctor = { version = "0.2.9", default-features = false }
+directories = { version = "6.0.0", default-features = true }
 egui = { version = "0.33.3", default-features = true, features = ["bytemuck"] }
 #egui_code_editor = "0.2.20"
+egui-file-dialog = { version = "0.12.0", default-features = true }
 #egui_node_graph2 = { git = "https://github.com/JasondeWolff/egui_node_graph.git", default-features = false, features = ["persistence"] }
 egui-phosphor = { version = "0.11.0", default-features = true }
 egui_tiles = { version = "0.14.1", default-features = true }

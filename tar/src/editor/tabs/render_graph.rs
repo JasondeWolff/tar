@@ -6,22 +6,15 @@ use std::borrow::Cow;
 
 use crate::{
     editor::node_graph::*,
+    project::Project,
     render_graph::{
-        HistoryTex2D, HistoryTex3D, RgDataType, RgNodeTemplate, RgValueType, ScreenTexResolution,
+        RgDataType, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType, ScreenTexResolution,
         Tex2D, Tex2DArray, Tex3D, Tex3DArray,
     },
     wgpu_util::BasicColorTextureFormat,
 };
 
 // // ========= First, define your user data types =============
-
-/// The NodeData holds a custom data struct inside each node. It's useful to
-/// store additional information that doesn't live in parameters. For this
-/// example, the node data stores the template (i.e. the "type") of the node.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct MyNodeData {
-    template: RgNodeTemplate,
-}
 
 // /// `DataType`s are what defines the possible range of connections when
 // /// attaching two ports together. The graph UI will make sure to not allow
@@ -97,19 +90,11 @@ pub enum MyResponse {
     ClearInspectNode,
 }
 
-/// The graph 'global' state. This state struct is passed around to the node and
-/// parameter drawing callbacks. The contents of this struct are entirely up to
-/// the user. For this example, we use it to keep track of the 'active' node.
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-pub struct MyGraphState {
-    pub inspect_node: Option<NodeId>,
-}
-
 // =========== Then, you need to implement some traits ============
 
 // A trait for the data types, to tell the library how to display them
-impl DataTypeTrait<MyGraphState> for RgDataType {
-    fn data_type_color(&self, _user_state: &mut MyGraphState) -> egui::Color32 {
+impl DataTypeTrait<RgGraphState> for RgDataType {
+    fn data_type_color(&self, _user_state: &mut RgGraphState) -> egui::Color32 {
         match self {
             Self::UInt => egui::Color32::from_rgb(38, 109, 211),
             Self::UInt2 => egui::Color32::from_rgb(38, 109, 211),
@@ -149,10 +134,10 @@ impl DataTypeTrait<MyGraphState> for RgDataType {
 // A trait for the node kinds, which tells the library how to build new nodes
 // from the templates in the node finder
 impl NodeTemplateTrait for RgNodeTemplate {
-    type NodeData = MyNodeData;
+    type NodeData = RgNodeData;
     type DataType = RgDataType;
     type ValueType = RgValueType;
-    type UserState = MyGraphState;
+    type UserState = RgGraphState;
     type CategoryType = String;
 
     fn node_finder_label(&self, _user_state: &mut Self::UserState) -> Cow<'_, str> {
@@ -197,7 +182,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
     }
 
     fn user_data(&self, _user_state: &mut Self::UserState) -> Self::NodeData {
-        MyNodeData { template: *self }
+        RgNodeData(*self)
     }
 
     fn build_node(
@@ -206,7 +191,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
         _user_state: &mut Self::UserState,
         node_id: NodeId,
     ) {
-        let input_uint = |graph: &mut MyGraph, name: &str| {
+        let input_uint = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -216,7 +201,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_uint2 = |graph: &mut MyGraph, name: &str| {
+        let input_uint2 = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -226,7 +211,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_uint3 = |graph: &mut MyGraph, name: &str| {
+        let input_uint3 = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -236,7 +221,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_float = |graph: &mut MyGraph, name: &str| {
+        let input_float = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -246,7 +231,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_bool = |graph: &mut MyGraph, name: &str| {
+        let input_bool = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -257,7 +242,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
             );
         };
 
-        let input_screen_tex_resolution = |graph: &mut MyGraph, name: &str| {
+        let input_screen_tex_resolution = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -268,7 +253,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
             );
         };
 
-        let input_tex_format = |graph: &mut MyGraph, name: &str| {
+        let input_tex_format = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -279,7 +264,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
             );
         };
 
-        let input_tex_2d = |graph: &mut MyGraph, name: &str| {
+        let input_tex_2d = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -289,7 +274,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_tex_2d_array = |graph: &mut MyGraph, name: &str| {
+        let input_tex_2d_array = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -299,7 +284,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_tex_3d = |graph: &mut MyGraph, name: &str| {
+        let input_tex_3d = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -309,7 +294,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_tex_3d_array = |graph: &mut MyGraph, name: &str| {
+        let input_tex_3d_array = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
                 name.to_string(),
@@ -320,16 +305,16 @@ impl NodeTemplateTrait for RgNodeTemplate {
             );
         };
 
-        let output_tex_2d = |graph: &mut MyGraph, name: &str| {
+        let output_tex_2d = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex2D);
         };
-        let output_tex_2d_array = |graph: &mut MyGraph, name: &str| {
+        let output_tex_2d_array = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex2DArray);
         };
-        let output_tex_3d = |graph: &mut MyGraph, name: &str| {
+        let output_tex_3d = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3D);
         };
-        let output_tex_3d_array = |graph: &mut MyGraph, name: &str| {
+        let output_tex_3d_array = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3DArray);
         };
 
@@ -414,15 +399,15 @@ impl NodeTemplateIter for AllMyNodeTemplates {
 
 impl WidgetValueTrait for RgValueType {
     type Response = MyResponse;
-    type UserState = MyGraphState;
-    type NodeData = MyNodeData;
+    type UserState = RgGraphState;
+    type NodeData = RgNodeData;
     fn value_widget(
         &mut self,
         param_name: &str,
         _node_id: NodeId,
         ui: &mut egui::Ui,
-        _user_state: &mut MyGraphState,
-        _node_data: &MyNodeData,
+        _user_state: &mut RgGraphState,
+        _node_data: &RgNodeData,
     ) -> Vec<MyResponse> {
         // This trait is used to tell the library which UI to display for the
         // inline parameter widgets.
@@ -503,9 +488,9 @@ impl WidgetValueTrait for RgValueType {
 }
 
 impl UserResponseTrait for MyResponse {}
-impl NodeDataTrait for MyNodeData {
+impl NodeDataTrait for RgNodeData {
     type Response = MyResponse;
-    type UserState = MyGraphState;
+    type UserState = RgGraphState;
     type DataType = RgDataType;
     type ValueType = RgValueType;
 
@@ -518,9 +503,9 @@ impl NodeDataTrait for MyNodeData {
         &self,
         ui: &mut egui::Ui,
         node_id: NodeId,
-        _graph: &Graph<MyNodeData, RgDataType, RgValueType>,
+        _graph: &Graph<RgNodeData, RgDataType, RgValueType>,
         user_state: &mut Self::UserState,
-    ) -> Vec<NodeResponse<MyResponse, MyNodeData>>
+    ) -> Vec<NodeResponse<MyResponse, RgNodeData>>
     where
         MyResponse: UserResponseTrait,
     {
@@ -564,24 +549,17 @@ impl NodeDataTrait for MyNodeData {
     }
 }
 
-type MyGraph = Graph<MyNodeData, RgDataType, RgValueType>;
-type MyEditorState =
-    GraphEditorState<MyNodeData, RgDataType, RgValueType, RgNodeTemplate, MyGraphState>;
+type RgGraph = Graph<RgNodeData, RgDataType, RgValueType>;
+pub type RgEditorState =
+    GraphEditorState<RgNodeData, RgDataType, RgValueType, RgNodeTemplate, RgGraphState>;
 
 pub struct RenderGraphTab {
     id: Uuid,
-
-    state: MyEditorState,
-    user_state: MyGraphState,
 }
 
 impl Default for RenderGraphTab {
     fn default() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            state: MyEditorState::default(),
-            user_state: MyGraphState::default(),
-        }
+        Self { id: Uuid::new_v4() }
     }
 }
 
@@ -590,24 +568,7 @@ impl RenderGraphTab {
         self.id
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        let graph_response = self.state.draw_graph_editor(
-            ui,
-            AllMyNodeTemplates,
-            &mut self.user_state,
-            Vec::default(),
-        );
-
-        for node_response in graph_response.node_responses {
-            // Here, we ignore all other graph events. But you may find
-            // some use for them. For example, by playing a sound when a new
-            // connection is created
-            if let NodeResponse::User(user_event) = node_response {
-                match user_event {
-                    MyResponse::SetInspectNode(node) => self.user_state.inspect_node = Some(node),
-                    MyResponse::ClearInspectNode => self.user_state.inspect_node = None,
-                }
-            }
-        }
+    pub fn ui(&mut self, ui: &mut egui::Ui, project: &mut Project) {
+        project.render_graph_mut().ui(ui);
     }
 }
