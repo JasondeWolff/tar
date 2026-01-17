@@ -70,7 +70,7 @@ impl Popup for CreateProject {
                 let project_name = self.project_name.replace(" ", "_");
                 let project_path = PathBuf::from(&self.project_path).join(&project_name);
 
-                let project_file_path = project_path.join(&project_name).with_extension("tar");
+                let project_file_path = project_path.join(&project_name).with_extension("tarproj");
 
                 // Check if a current project file already exists
                 let exists = std::fs::exists(&project_file_path).unwrap_or(true);
@@ -78,18 +78,15 @@ impl Popup for CreateProject {
                 ui.add_enabled_ui(!exists, |ui| {
                     if ui.button("Create").clicked() {
                         // Create new project struct from the input fields
-                        *project = Some(Project::new(&project_file_path));
+                        let new_project = Project::new(&project_file_path);
 
-                        // // Create all necessary directories
-                        // if std::fs::create_dir_all(&project_path).is_ok() {
-                        //     // Save the project to a file
-                        //     if project.save(project_file_path).is_ok() {
-                        //         // Register the new project as the current project in use
-                        //         resources.insert::<Project>(project);
-
-                        //         should_close = true;
-                        //     }
-                        // }
+                        // Create all necessary directories
+                        if std::fs::create_dir_all(&project_path).is_ok() {
+                            // Save the project to a file
+                            if new_project.save().is_ok() {
+                                *project = Some(new_project);
+                            }
+                        }
 
                         should_close = true;
                     }

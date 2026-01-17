@@ -50,18 +50,18 @@ fn my_func(a: u32, b: u32) -> u32 {
 #[derive(Serialize, Deserialize)]
 pub struct CodeFile {
     id: Uuid,
-    path: PathBuf,
+    relative_path: PathBuf,
     ty: CodeFileType,
     source: String,
 }
 
 impl CodeFile {
-    pub fn new<P: Into<PathBuf>>(path: P, ty: CodeFileType) -> Self {
+    pub fn new<P: Into<PathBuf>>(relative_path: P, ty: CodeFileType) -> Self {
         let source = ty.default_source();
 
         Self {
             id: Uuid::new_v4(),
-            path: path.into(),
+            relative_path: relative_path.into(),
             ty,
             source,
         }
@@ -74,40 +74,50 @@ impl CodeFile {
     pub fn ty(&self) -> CodeFileType {
         self.ty
     }
+
+    pub fn relative_path(&self) -> &PathBuf {
+        &self.relative_path
+    }
+
+    pub fn path(&self, project_path: &Path) -> PathBuf {
+        project_path.join(&self.relative_path)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct CodeFiles {
-    path: PathBuf,
+    project_path: PathBuf,
     files: HashMap<Uuid, CodeFile>,
 }
 
 impl CodeFiles {
-    pub fn new<P: Into<PathBuf>>(path: P) -> Self {
+    pub fn new<P: Into<PathBuf>>(project_path: P) -> Self {
         let mut code_files = Self {
-            path: path.into(),
+            project_path: project_path.into(),
             files: HashMap::new(),
         };
         let _ = code_files.create_file("main.frag.wgsl", CodeFileType::Fragment);
         code_files
     }
 
-    pub fn contains_file<P: AsRef<Path>>(&self, path: P) -> bool {
-        let path = path.as_ref();
-        self.files.values().any(|file| file.path == path)
+    pub fn contains_file<P: AsRef<Path>>(&self, relative_path: P) -> bool {
+        let relative_path = relative_path.as_ref();
+        self.files
+            .values()
+            .any(|file| file.relative_path == relative_path)
     }
 
     pub fn create_file<P: Into<PathBuf>>(
         &mut self,
-        path: P,
+        relative_path: P,
         ty: CodeFileType,
     ) -> anyhow::Result<Uuid> {
-        let path = path.into();
-        if self.contains_file(&path) {
+        let relative_path = relative_path.into();
+        if self.contains_file(&relative_path) {
             anyhow::bail!("Code file already exists");
         }
 
-        let file = CodeFile::new(path, ty);
+        let file = CodeFile::new(relative_path, ty);
         let id = file.id;
         self.files.insert(id, file);
 
@@ -135,7 +145,7 @@ impl CodeFiles {
 
     pub fn save_file(&self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get(&id) {
-            let mut file = std::fs::File::create(&code_file.path)?;
+            let mut file = std::fs::File::create(code_file.path(&self.project_path))?;
             file.write_all(code_file.source.as_bytes())?;
 
             Ok(())
@@ -146,7 +156,7 @@ impl CodeFiles {
 
     pub fn load_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get_mut(&id) {
-            let mut file = std::fs::File::open(&code_file.path)?;
+            let mut file = std::fs::File::open(code_file.path(&self.project_path))?;
             file.read_to_string(&mut code_file.source)?;
 
             Ok(())
@@ -155,17 +165,25 @@ impl CodeFiles {
         }
     }
 
-    pub fn move_file<P: Into<PathBuf>>(&mut self, id: Uuid, new_path: P) -> anyhow::Result<()> {
-        let new_path = new_path.into();
+    pub fn move_file<P: Into<PathBuf>>(
+        &mut self,
+        id: Uuid,
+        new_relative_path: P,
+    ) -> anyhow::Result<()> {
+        let new_relative_path = new_relative_path.into();
 
-        if self.contains_file(&new_path) {
-            anyhow::bail!("New path '{:?}' already exists", &new_path);
+        if self.contains_file(&new_relative_path) {
+            anyhow::bail!("New path '{:?}' already exists", &new_relative_path);
         }
 
         if let Some(code_file) = self.files.get_mut(&id) {
-            if code_file.path != new_path {
-                std::fs::rename(&code_file.path, &new_path)?;
-                code_file.path = new_path;
+            if code_file.relative_path != new_relative_path {
+                let old_path = code_file.path(&self.project_path);
+
+                code_file.relative_path = new_relative_path;
+                let new_path = code_file.path(&self.project_path);
+
+                std::fs::rename(old_path, new_path)?;
             }
 
             Ok(())
@@ -176,7 +194,7 @@ impl CodeFiles {
 
     pub fn delete_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(file) = self.files.remove(&id) {
-            std::fs::remove_file(&file.path)?;
+            std::fs::remove_file(file.path(&self.project_path))?;
         } else {
             anyhow::bail!("No code file found with id {}", id);
         }
@@ -198,7 +216,7 @@ pub struct Project {
 impl Project {
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         let path = path.into();
-        let code_files = CodeFiles::new(path.clone());
+        let code_files = CodeFiles::new(path.parent().unwrap());
         let render_graph = RenderGraph::new();
 
         Self {
@@ -210,6 +228,22 @@ impl Project {
 
     pub fn render_graph_mut(&mut self) -> &mut RenderGraph {
         &mut self.render_graph
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        let file = std::fs::File::create(&self.path)?;
+        let writer = std::io::BufWriter::new(file);
+        serde_json::to_writer(writer, &self)?;
+
+        Ok(())
+    }
+
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        let data = serde_json::from_reader(reader)?;
+
+        Ok(data)
     }
 }
 

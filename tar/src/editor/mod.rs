@@ -4,7 +4,7 @@ use egui_tiles::{Tiles, Tree};
 
 use crate::{
     editor::{
-        popup::{create_project::CreateProject, Popup},
+        popup::{create_project::CreateProject, open_project::OpenProject, Popup},
         tabs::{
             code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
             render_graph::RenderGraphTab, viewport::ViewportTab, Tab, TabViewer,
@@ -136,6 +136,8 @@ impl Editor {
                             .clicked()
                         {
                             ui.close();
+
+                            self.open_popup(OpenProject::default());
                         }
                     });
 
