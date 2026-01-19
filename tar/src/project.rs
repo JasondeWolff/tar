@@ -79,24 +79,32 @@ impl CodeFile {
         &self.relative_path
     }
 
-    pub fn path(&self, project_path: &Path) -> PathBuf {
-        project_path.join(&self.relative_path)
+    pub fn path(&self, code_path: &Path) -> PathBuf {
+        code_path.join(&self.relative_path)
     }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct CodeFiles {
-    project_path: PathBuf,
+    code_path: PathBuf,
     files: HashMap<Uuid, CodeFile>,
 }
 
 impl CodeFiles {
     pub fn new<P: Into<PathBuf>>(project_path: P) -> Self {
+        let project_path = project_path.into();
+        let code_path = project_path.join("code");
+
         let mut code_files = Self {
-            project_path: project_path.into(),
+            code_path,
             files: HashMap::new(),
         };
+
         let _ = code_files.create_file("main.frag.wgsl", CodeFileType::Fragment);
+        let _ = code_files.create_file("bake_noise.comp.wgsl", CodeFileType::Compute);
+        let _ = code_files.create_file("shared/common.wgsl", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/math.wgsl", CodeFileType::Shared);
+
         code_files
     }
 
@@ -145,7 +153,13 @@ impl CodeFiles {
 
     pub fn save_file(&self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get(&id) {
-            let mut file = std::fs::File::create(code_file.path(&self.project_path))?;
+            let path = code_file.path(&self.code_path);
+
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            let mut file = std::fs::File::create(path)?;
             file.write_all(code_file.source.as_bytes())?;
 
             Ok(())
@@ -154,15 +168,31 @@ impl CodeFiles {
         }
     }
 
+    pub fn save_all(&self) -> anyhow::Result<()> {
+        for id in self.files.keys() {
+            self.save_file(*id)?;
+        }
+
+        Ok(())
+    }
+
     pub fn load_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get_mut(&id) {
-            let mut file = std::fs::File::open(code_file.path(&self.project_path))?;
+            let mut file = std::fs::File::open(code_file.path(&self.code_path))?;
             file.read_to_string(&mut code_file.source)?;
 
             Ok(())
         } else {
             anyhow::bail!("No code file found with id {}", id);
         }
+    }
+
+    pub fn load_all(&mut self) -> anyhow::Result<()> {
+        for id in self.files.keys().copied().collect::<Vec<Uuid>>() {
+            self.load_file(id)?;
+        }
+
+        Ok(())
     }
 
     pub fn move_file<P: Into<PathBuf>>(
@@ -178,10 +208,14 @@ impl CodeFiles {
 
         if let Some(code_file) = self.files.get_mut(&id) {
             if code_file.relative_path != new_relative_path {
-                let old_path = code_file.path(&self.project_path);
+                let old_path = code_file.path(&self.code_path);
 
                 code_file.relative_path = new_relative_path;
-                let new_path = code_file.path(&self.project_path);
+                let new_path = code_file.path(&self.code_path);
+
+                if let Some(parent) = new_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
 
                 std::fs::rename(old_path, new_path)?;
             }
@@ -194,12 +228,20 @@ impl CodeFiles {
 
     pub fn delete_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(file) = self.files.remove(&id) {
-            std::fs::remove_file(file.path(&self.project_path))?;
+            std::fs::remove_file(file.path(&self.code_path))?;
         } else {
             anyhow::bail!("No code file found with id {}", id);
         }
 
         Ok(())
+    }
+
+    pub fn files_iter(&self) -> impl Iterator<Item = (&Uuid, &CodeFile)> {
+        self.files.iter()
+    }
+
+    pub fn get_file(&self, id: Uuid) -> Option<&CodeFile> {
+        self.files.get(&id)
     }
 }
 
@@ -210,7 +252,7 @@ impl CodeFiles {
 pub struct Project {
     path: PathBuf,
     render_graph: RenderGraph,
-    code_files: CodeFiles,
+    pub code_files: CodeFiles,
 }
 
 impl Project {
@@ -235,13 +277,17 @@ impl Project {
         let writer = std::io::BufWriter::new(file);
         serde_json::to_writer(writer, &self)?;
 
+        self.code_files.save_all()?;
+
         Ok(())
     }
 
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let file = std::fs::File::open(path)?;
         let reader = std::io::BufReader::new(file);
-        let data = serde_json::from_reader(reader)?;
+        let mut data: Project = serde_json::from_reader(reader)?;
+
+        data.code_files.load_all()?;
 
         Ok(data)
     }

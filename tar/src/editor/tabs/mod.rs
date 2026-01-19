@@ -77,7 +77,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui);
             }
             Tab::FileExplorer(tab) => {
-                tab.ui(ui);
+                tab.ui(ui, self.project);
             }
             Tab::RenderGraph(tab) => {
                 tab.ui(ui, self.project);
