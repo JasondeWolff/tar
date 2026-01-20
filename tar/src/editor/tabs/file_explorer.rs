@@ -22,6 +22,8 @@ impl Default for FileExplorerTab {
 }
 
 impl FileExplorerTab {
+    const INDENT_WIDTH: f32 = 16.0;
+
     pub fn id(&self) -> Uuid {
         self.id
     }
@@ -84,8 +86,6 @@ impl FileExplorerTab {
         folders.sort();
         files_here.sort_by(|a, b| a.1.cmp(&b.1));
 
-        let indent = indent_level as f32 * 16.0;
-
         // Render folders first
         for folder in folders {
             let folder_name = folder
@@ -96,7 +96,7 @@ impl FileExplorerTab {
             let is_expanded = *self.expanded_folders.get(&folder).unwrap_or(&false);
 
             ui.horizontal(|ui| {
-                ui.add_space(indent);
+                Self::draw_indent_guides(ui, indent_level);
 
                 let icon = if is_expanded {
                     icons::FOLDER_OPEN
@@ -126,7 +126,7 @@ impl FileExplorerTab {
             let icon = self.get_file_icon(&path, project, id);
 
             ui.horizontal(|ui| {
-                ui.add_space(indent);
+                Self::draw_indent_guides(ui, indent_level);
 
                 if ui
                     .selectable_label(false, format!("{} {}", icon, file_name))
@@ -137,6 +137,33 @@ impl FileExplorerTab {
                 }
             });
         }
+    }
+
+    /// Draws vertical indent guide lines for each level (except root)
+    fn draw_indent_guides(ui: &mut egui::Ui, indent_level: usize) {
+        if indent_level == 0 {
+            return;
+        }
+
+        let line_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        let row_height = ui.text_style_height(&egui::TextStyle::Body);
+
+        for level in 0..indent_level {
+            let x_offset = level as f32 * Self::INDENT_WIDTH + Self::INDENT_WIDTH * 0.5;
+            let rect = ui.available_rect_before_wrap();
+            let line_x = rect.left() + x_offset;
+
+            ui.painter().line_segment(
+                [
+                    egui::pos2(line_x, rect.top() - 5.0),
+                    egui::pos2(line_x, rect.top() + row_height + 5.0),
+                ],
+                egui::Stroke::new(1.0, line_color),
+            );
+        }
+
+        // Add space for the indent
+        ui.add_space(indent_level as f32 * Self::INDENT_WIDTH);
     }
 
     fn get_file_icon(&self, path: &Path, project: &Project, id: Uuid) -> &'static str {

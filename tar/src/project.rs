@@ -102,8 +102,14 @@ impl CodeFiles {
 
         let _ = code_files.create_file("main.frag.wgsl", CodeFileType::Fragment);
         let _ = code_files.create_file("bake_noise.comp.wgsl", CodeFileType::Compute);
+        let _ = code_files.create_file("atmosphere/march.frag.wgsl", CodeFileType::Fragment);
+        let _ = code_files.create_file("atmosphere/composite.frag.wgsl", CodeFileType::Fragment);
         let _ = code_files.create_file("shared/common.wgsl", CodeFileType::Shared);
         let _ = code_files.create_file("shared/math.wgsl", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/diffuse.wgsl", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/dielectric.wgsl", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/conductor.wgsl", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/sampling.wgsl", CodeFileType::Shared);
 
         code_files
     }
