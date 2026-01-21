@@ -5,11 +5,20 @@ use uuid::Uuid;
 
 use crate::project::{CodeFileType, Project};
 
+#[derive(Clone)]
+enum ExplorerItem {
+    Folder { path: PathBuf, is_expanded: bool },
+    File { id: Uuid, path: PathBuf },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileExplorerTab {
     id: Uuid,
+
     /// Tracks which folders are expanded (by their path)
     expanded_folders: HashMap<PathBuf, bool>,
+
+    selected: Option<PathBuf>,
 }
 
 impl Default for FileExplorerTab {
@@ -17,36 +26,170 @@ impl Default for FileExplorerTab {
         Self {
             id: Uuid::new_v4(),
             expanded_folders: HashMap::new(),
+            selected: None,
         }
     }
 }
 
 impl FileExplorerTab {
     const INDENT_WIDTH: f32 = 16.0;
+    const LEFT_PADDING: f32 = 10.0;
+    const TOP_PADDING: f32 = 5.0;
 
     pub fn id(&self) -> Uuid {
         self.id
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, project: &mut Project) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(5.0); // Top padding
-            ui.horizontal(|ui| {
-                ui.add_space(10.0); // Left padding
-                ui.vertical(|ui| {
-                    self.render_directory(ui, project, Path::new(""), 0);
-                });
+        egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .show_viewport(ui, |ui, viewport| {
+                self.draw_explorer(ui, viewport, project);
             });
-        });
     }
 
-    fn render_directory(
-        &mut self,
-        ui: &mut egui::Ui,
-        project: &mut Project,
+    fn draw_explorer(&mut self, ui: &mut egui::Ui, viewport: egui::Rect, project: &mut Project) {
+        let font_id = egui::FontId::proportional(14.0);
+        let row_height = ui.text_style_height(&egui::TextStyle::Body);
+
+        // Build flattened list of visible items
+        let items = self.build_item_list(project, Path::new(""), 0);
+        let total_rows = items.len();
+
+        // Calculate content size
+        let content_height = total_rows as f32 * row_height + Self::TOP_PADDING;
+        let content_width = ui.available_width();
+
+        // Allocate the full content rect
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(content_width, content_height.max(ui.available_height())),
+            egui::Sense::click(),
+        );
+
+        let painter = ui.painter_at(rect);
+
+        // Colors
+        let selection_color = egui::Color32::from_rgb(40, 40, 70);
+        let text_color = ui.visuals().text_color();
+        let selected_text_color = egui::Color32::WHITE;
+        let line_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+
+        // Calculate visible rows
+        let first_visible = ((viewport.min.y - Self::TOP_PADDING) / row_height)
+            .floor()
+            .max(0.0) as usize;
+        let last_visible = ((viewport.max.y - Self::TOP_PADDING) / row_height).ceil() as usize + 1;
+
+        // Draw visible rows
+        for (row_idx, (item, indent_level)) in items
+            .iter()
+            .enumerate()
+            .skip(first_visible)
+            .take(last_visible - first_visible)
+        {
+            let y = rect.min.y + Self::TOP_PADDING + row_idx as f32 * row_height;
+            let row_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.min.x, y),
+                egui::vec2(rect.width(), row_height),
+            );
+
+            let item_path = match item {
+                ExplorerItem::Folder { path, .. } => path,
+                ExplorerItem::File { path, .. } => path,
+            };
+            let is_selected = self.selected.as_ref() == Some(item_path);
+
+            // Draw selection background (full width)
+            if is_selected {
+                painter.rect_filled(row_rect, 0.0, selection_color);
+            }
+
+            // Draw indent guides
+            for level in 0..*indent_level {
+                let line_x = rect.min.x
+                    + Self::LEFT_PADDING
+                    + level as f32 * Self::INDENT_WIDTH
+                    + Self::INDENT_WIDTH * 0.5;
+                painter.line_segment(
+                    [
+                        egui::pos2(line_x, row_rect.top()),
+                        egui::pos2(line_x, row_rect.bottom()),
+                    ],
+                    egui::Stroke::new(1.0, line_color),
+                );
+            }
+
+            // Draw icon and text
+            let text_x =
+                rect.min.x + Self::LEFT_PADDING + *indent_level as f32 * Self::INDENT_WIDTH;
+            let (icon, name) = match item {
+                ExplorerItem::Folder { path, is_expanded } => {
+                    let icon = if *is_expanded {
+                        icons::FOLDER_OPEN
+                    } else {
+                        icons::FOLDER
+                    };
+                    let name = path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    (icon, name)
+                }
+                ExplorerItem::File { id, path } => {
+                    let icon = self.get_file_icon(path, project, *id);
+                    let name = path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    (icon, name)
+                }
+            };
+
+            let label = format!("{} {}", icon, name);
+            let color = if is_selected {
+                selected_text_color
+            } else {
+                text_color
+            };
+
+            painter.text(
+                egui::pos2(text_x, y),
+                egui::Align2::LEFT_TOP,
+                label,
+                font_id.clone(),
+                color,
+            );
+        }
+
+        // Handle clicks
+        if response.clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let row_idx =
+                    ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
+                if row_idx < items.len() {
+                    let (item, _) = &items[row_idx];
+                    match item {
+                        ExplorerItem::Folder { path, is_expanded } => {
+                            self.expanded_folders.insert(path.clone(), !is_expanded);
+                            self.selected = Some(path.clone());
+                        }
+                        ExplorerItem::File { path, .. } => {
+                            self.selected = Some(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn build_item_list(
+        &self,
+        project: &Project,
         current_path: &Path,
         indent_level: usize,
-    ) {
+    ) -> Vec<(ExplorerItem, usize)> {
+        let mut result = Vec::new();
+
         // Collect folders and files at this level
         let mut folders: Vec<PathBuf> = Vec::new();
         let mut files_here: Vec<(Uuid, PathBuf)> = Vec::new();
@@ -56,10 +199,8 @@ impl FileExplorerTab {
 
             if let Some(parent) = rel_path.parent() {
                 if parent == current_path {
-                    // File is directly in this folder
                     files_here.push((*id, rel_path.clone()));
                 } else if parent.starts_with(current_path) || current_path.as_os_str().is_empty() {
-                    // File is in a subfolder - extract immediate child folder
                     let components: Vec<_> = if current_path.as_os_str().is_empty() {
                         rel_path.components().collect()
                     } else {
@@ -78,7 +219,6 @@ impl FileExplorerTab {
                     }
                 }
             } else if current_path.as_os_str().is_empty() {
-                // File at root level (no parent)
                 files_here.push((*id, rel_path.clone()));
             }
         }
@@ -86,84 +226,29 @@ impl FileExplorerTab {
         folders.sort();
         files_here.sort_by(|a, b| a.1.cmp(&b.1));
 
-        // Render folders first
+        // Add folders
         for folder in folders {
-            let folder_name = folder
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-
             let is_expanded = *self.expanded_folders.get(&folder).unwrap_or(&false);
-
-            ui.horizontal(|ui| {
-                Self::draw_indent_guides(ui, indent_level);
-
-                let icon = if is_expanded {
-                    icons::FOLDER_OPEN
-                } else {
-                    icons::FOLDER
-                };
-
-                let response = ui.selectable_label(false, format!("{} {}", icon, folder_name));
-
-                if response.clicked() {
-                    self.expanded_folders.insert(folder.clone(), !is_expanded);
-                }
-            });
+            result.push((
+                ExplorerItem::Folder {
+                    path: folder.clone(),
+                    is_expanded,
+                },
+                indent_level,
+            ));
 
             if is_expanded {
-                self.render_directory(ui, project, &folder, indent_level + 1);
+                let children = self.build_item_list(project, &folder, indent_level + 1);
+                result.extend(children);
             }
         }
 
-        // Render files
+        // Add files
         for (id, path) in files_here {
-            let file_name = path
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_default();
-
-            let icon = self.get_file_icon(&path, project, id);
-
-            ui.horizontal(|ui| {
-                Self::draw_indent_guides(ui, indent_level);
-
-                if ui
-                    .selectable_label(false, format!("{} {}", icon, file_name))
-                    .clicked()
-                {
-                    // Handle file click - open in editor, etc.
-                    // project.open_file(id);
-                }
-            });
-        }
-    }
-
-    /// Draws vertical indent guide lines for each level (except root)
-    fn draw_indent_guides(ui: &mut egui::Ui, indent_level: usize) {
-        if indent_level == 0 {
-            return;
+            result.push((ExplorerItem::File { id, path }, indent_level));
         }
 
-        let line_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
-        let row_height = ui.text_style_height(&egui::TextStyle::Body);
-
-        for level in 0..indent_level {
-            let x_offset = level as f32 * Self::INDENT_WIDTH + Self::INDENT_WIDTH * 0.5;
-            let rect = ui.available_rect_before_wrap();
-            let line_x = rect.left() + x_offset;
-
-            ui.painter().line_segment(
-                [
-                    egui::pos2(line_x, rect.top() - 5.0),
-                    egui::pos2(line_x, rect.top() + row_height + 5.0),
-                ],
-                egui::Stroke::new(1.0, line_color),
-            );
-        }
-
-        // Add space for the indent
-        ui.add_space(indent_level as f32 * Self::INDENT_WIDTH);
+        result
     }
 
     fn get_file_icon(&self, path: &Path, project: &Project, id: Uuid) -> &'static str {

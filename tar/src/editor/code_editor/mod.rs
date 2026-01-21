@@ -153,7 +153,6 @@ impl CodeEditor {
 
     pub fn ui(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) {
         egui::ScrollArea::both()
-            .id_salt("editor_scroll_area_id")
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
                 self.draw_editor(ui, viewport, key_modifiers);
