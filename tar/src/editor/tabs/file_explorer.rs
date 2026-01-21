@@ -35,6 +35,7 @@ impl FileExplorerTab {
     const INDENT_WIDTH: f32 = 16.0;
     const LEFT_PADDING: f32 = 10.0;
     const TOP_PADDING: f32 = 5.0;
+    const ROW_SPACING: f32 = 4.0;
 
     pub fn id(&self) -> Uuid {
         self.id
@@ -50,7 +51,8 @@ impl FileExplorerTab {
 
     fn draw_explorer(&mut self, ui: &mut egui::Ui, viewport: egui::Rect, project: &mut Project) {
         let font_id = egui::FontId::proportional(14.0);
-        let row_height = ui.text_style_height(&egui::TextStyle::Body);
+        let text_height = ui.text_style_height(&egui::TextStyle::Body);
+        let row_height = text_height + Self::ROW_SPACING;
 
         // Build flattened list of visible items
         let items = self.build_item_list(project, Path::new(""), 0);
@@ -70,9 +72,23 @@ impl FileExplorerTab {
 
         // Colors
         let selection_color = egui::Color32::from_rgb(40, 40, 70);
+        let hover_color = egui::Color32::from_rgb(50, 50, 55);
         let text_color = ui.visuals().text_color();
         let selected_text_color = egui::Color32::WHITE;
         let line_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+
+        // Get hover position
+        let hover_pos = ui.input(|i| i.pointer.hover_pos());
+        let hovered_row = hover_pos.and_then(|pos| {
+            if rect.contains(pos) {
+                let row_idx =
+                    ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
+                if row_idx < items.len() {
+                    return Some(row_idx);
+                }
+            }
+            None
+        });
 
         // Calculate visible rows
         let first_visible = ((viewport.min.y - Self::TOP_PADDING) / row_height)
@@ -98,10 +114,13 @@ impl FileExplorerTab {
                 ExplorerItem::File { path, .. } => path,
             };
             let is_selected = self.selected.as_ref() == Some(item_path);
+            let is_hovered = hovered_row == Some(row_idx);
 
-            // Draw selection background (full width)
+            // Draw hover or selection background (full width)
             if is_selected {
                 painter.rect_filled(row_rect, 0.0, selection_color);
+            } else if is_hovered {
+                painter.rect_filled(row_rect, 0.0, hover_color);
             }
 
             // Draw indent guides
@@ -119,9 +138,10 @@ impl FileExplorerTab {
                 );
             }
 
-            // Draw icon and text
+            // Draw icon and text (vertically centered in row)
             let text_x =
                 rect.min.x + Self::LEFT_PADDING + *indent_level as f32 * Self::INDENT_WIDTH;
+            let text_y = y + Self::ROW_SPACING / 2.0;
             let (icon, name) = match item {
                 ExplorerItem::Folder { path, is_expanded } => {
                     let icon = if *is_expanded {
@@ -153,7 +173,7 @@ impl FileExplorerTab {
             };
 
             painter.text(
-                egui::pos2(text_x, y),
+                egui::pos2(text_x, text_y),
                 egui::Align2::LEFT_TOP,
                 label,
                 font_id.clone(),
