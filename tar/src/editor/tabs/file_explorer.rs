@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::editor::EditorDragPayload;
 use crate::project::{CodeFileType, Project};
 
 #[derive(Clone)]
@@ -41,15 +42,26 @@ impl FileExplorerTab {
         self.id
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, project: &mut Project) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        project: &mut Project,
+        drag_payload: &mut Option<EditorDragPayload>,
+    ) {
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
-                self.draw_explorer(ui, viewport, project);
+                self.draw_explorer(ui, viewport, project, drag_payload);
             });
     }
 
-    fn draw_explorer(&mut self, ui: &mut egui::Ui, viewport: egui::Rect, project: &mut Project) {
+    fn draw_explorer(
+        &mut self,
+        ui: &mut egui::Ui,
+        viewport: egui::Rect,
+        project: &mut Project,
+        drag_payload: &mut Option<EditorDragPayload>,
+    ) {
         let font_id = egui::FontId::proportional(14.0);
         let text_height = ui.text_style_height(&egui::TextStyle::Body);
         let row_height = text_height + Self::ROW_SPACING;
@@ -65,7 +77,7 @@ impl FileExplorerTab {
         // Allocate the full content rect
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(content_width, content_height.max(ui.available_height())),
-            egui::Sense::click(),
+            egui::Sense::click_and_drag(),
         );
 
         let painter = ui.painter_at(rect);
@@ -156,7 +168,7 @@ impl FileExplorerTab {
                     (icon, name)
                 }
                 ExplorerItem::File { id, path } => {
-                    let icon = self.get_file_icon(path, project, *id);
+                    let icon = project.get_file_icon(path, *id);
                     let name = path
                         .file_name()
                         .map(|s| s.to_string_lossy().to_string())
@@ -181,20 +193,35 @@ impl FileExplorerTab {
             );
         }
 
-        // Handle clicks
-        if response.clicked() {
+        // Handle clicks & drags
+        if response.clicked() || response.drag_started() {
             if let Some(pos) = response.interact_pointer_pos() {
                 let row_idx =
                     ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
                 if row_idx < items.len() {
                     let (item, _) = &items[row_idx];
-                    match item {
-                        ExplorerItem::Folder { path, is_expanded } => {
-                            self.expanded_folders.insert(path.clone(), !is_expanded);
-                            self.selected = Some(path.clone());
+
+                    if response.clicked() {
+                        match item {
+                            ExplorerItem::Folder { path, is_expanded } => {
+                                self.expanded_folders.insert(path.clone(), !is_expanded);
+                                self.selected = Some(path.clone());
+                            }
+                            ExplorerItem::File { path, .. } => {
+                                self.selected = Some(path.clone());
+                            }
                         }
-                        ExplorerItem::File { path, .. } => {
-                            self.selected = Some(path.clone());
+                    } else if response.drag_started() {
+                        match item {
+                            ExplorerItem::Folder { path, .. } => {
+                                *drag_payload = Some(EditorDragPayload::Folder(path.clone()));
+                                self.selected = Some(path.clone());
+                            }
+                            ExplorerItem::File { id, path } => {
+                                *drag_payload =
+                                    Some(EditorDragPayload::CodeFile(id.clone(), path.clone()));
+                                self.selected = Some(path.clone());
+                            }
                         }
                     }
                 }
@@ -269,25 +296,5 @@ impl FileExplorerTab {
         }
 
         result
-    }
-
-    fn get_file_icon(&self, path: &Path, project: &Project, id: Uuid) -> &'static str {
-        // Check by CodeFileType if available
-        if let Some(file) = project.code_files.get_file(id) {
-            return match file.ty() {
-                CodeFileType::Fragment => icons::CUBE,
-                CodeFileType::Compute => icons::CPU,
-                CodeFileType::Shared => icons::SHARE_NETWORK,
-            };
-        }
-
-        // Fallback: check by extension
-        match path.extension().and_then(|s| s.to_str()) {
-            Some("wgsl") => icons::FILE_CODE,
-            Some("glsl") => icons::FILE_CODE,
-            Some("json") => icons::BRACKETS_CURLY,
-            Some("toml") | Some("yaml") | Some("yml") => icons::GEAR,
-            _ => icons::FILE,
-        }
     }
 }

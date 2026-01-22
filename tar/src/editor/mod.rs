@@ -1,6 +1,7 @@
-use std::{any::TypeId, collections::HashMap};
+use std::{any::TypeId, collections::HashMap, path::PathBuf};
 
 use egui_tiles::{Tiles, Tree};
+use uuid::Uuid;
 
 use crate::{
     editor::{
@@ -19,9 +20,17 @@ pub mod node_graph;
 pub mod popup;
 pub mod tabs;
 
+pub enum EditorDragPayloadType {}
+
+pub enum EditorDragPayload {
+    CodeFile(Uuid, PathBuf),
+    Folder(PathBuf),
+}
+
 pub struct Editor {
     tree: Tree<Tab>,
     popups: HashMap<TypeId, Box<dyn Popup>>,
+    drag_payload: Option<EditorDragPayload>,
 }
 
 impl Default for Editor {
@@ -82,6 +91,7 @@ impl Editor {
         Self {
             tree,
             popups: HashMap::new(),
+            drag_payload: None,
         }
     }
 
@@ -205,11 +215,63 @@ impl Editor {
             )
             .show(egui_ctx, |ui| {
                 if let Some(project) = project {
-                    self.tree
-                        .ui(&mut TabViewer::new(key_modifiers, project), ui);
+                    self.tree.ui(
+                        &mut TabViewer::new(key_modifiers, project, &mut self.drag_payload),
+                        ui,
+                    );
                 }
             });
 
         self.popup_ui(egui_ctx, project);
+
+        if let (Some(ty), Some(project)) = (&self.drag_payload, &project) {
+            let pointer_pos = egui_ctx.pointer_interact_pos();
+
+            let painter = egui_ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Tooltip,
+                egui::Id::new("drag_preview"),
+            ));
+
+            let font_id = egui::FontId::proportional(14.0);
+
+            if let Some(pos) = pointer_pos {
+                match ty {
+                    EditorDragPayload::CodeFile(id, path) => {
+                        let icon = project.get_file_icon(path, *id);
+                        let name = path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_default();
+
+                        painter.text(
+                            pos + egui::vec2(16.0, 16.0),
+                            egui::Align2::CENTER_CENTER,
+                            format!("{} {}", icon, name),
+                            font_id,
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    EditorDragPayload::Folder(path) => {
+                        let name = path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_default();
+
+                        painter.text(
+                            pos + egui::vec2(16.0, 16.0),
+                            egui::Align2::CENTER_CENTER,
+                            format!("{} {}", egui_phosphor::regular::FOLDER, name),
+                            font_id,
+                            egui::Color32::WHITE,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Make sure to clear the drag payload when the primary pointer is released
+        if egui_ctx.input(|i| i.pointer.primary_released()) {
+            self.drag_payload = None;
+        }
     }
 }

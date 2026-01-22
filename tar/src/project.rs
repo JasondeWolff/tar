@@ -17,6 +17,16 @@ pub enum CodeFileType {
 }
 
 impl CodeFileType {
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Fragment => egui_phosphor::regular::CUBE,
+            Self::Compute => egui_phosphor::regular::CPU,
+            Self::Shared => egui_phosphor::regular::SHARE_NETWORK,
+        }
+    }
+}
+
+impl CodeFileType {
     pub fn default_source(&self) -> String {
         match self {
             Self::Fragment => String::from(
@@ -296,6 +306,20 @@ impl Project {
         data.code_files.load_all()?;
 
         Ok(data)
+    }
+
+    pub fn get_file_icon(&self, path: &Path, id: Uuid) -> &'static str {
+        if let Some(file) = self.code_files.get_file(id) {
+            return file.ty().icon();
+        }
+
+        match path.extension().and_then(|s| s.to_str()) {
+            Some("wgsl") => egui_phosphor::regular::FILE_CODE,
+            Some("glsl") => egui_phosphor::regular::FILE_CODE,
+            Some("json") => egui_phosphor::regular::BRACKETS_CURLY,
+            Some("toml") | Some("yaml") | Some("yml") => egui_phosphor::regular::GEAR,
+            _ => egui_phosphor::regular::FILE,
+        }
     }
 }
 

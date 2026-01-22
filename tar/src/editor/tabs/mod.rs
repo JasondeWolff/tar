@@ -1,7 +1,10 @@
 use crate::{
-    editor::tabs::{
-        code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
-        render_graph::RenderGraphTab, viewport::ViewportTab,
+    editor::{
+        tabs::{
+            code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
+            render_graph::RenderGraphTab, viewport::ViewportTab,
+        },
+        EditorDragPayload,
     },
     egui_util::KeyModifiers,
     project::Project,
@@ -47,13 +50,19 @@ impl std::fmt::Display for Tab {
 pub struct TabViewer<'a> {
     key_modifiers: &'a KeyModifiers,
     project: &'a mut Project,
+    drag_payload: &'a mut Option<EditorDragPayload>,
 }
 
 impl<'a> TabViewer<'a> {
-    pub fn new(key_modifiers: &'a KeyModifiers, project: &'a mut Project) -> Self {
+    pub fn new(
+        key_modifiers: &'a KeyModifiers,
+        project: &'a mut Project,
+        drag_payload: &'a mut Option<EditorDragPayload>,
+    ) -> Self {
         Self {
             key_modifiers,
             project,
+            drag_payload,
         }
     }
 }
@@ -77,7 +86,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui);
             }
             Tab::FileExplorer(tab) => {
-                tab.ui(ui, self.project);
+                tab.ui(ui, self.project, self.drag_payload);
             }
             Tab::RenderGraph(tab) => {
                 tab.ui(ui, self.project);
