@@ -12,15 +12,6 @@ enum ExplorerItem {
     File { id: Uuid, path: PathBuf },
 }
 
-impl ExplorerItem {
-    fn dir_path(&self) -> PathBuf {
-        match self {
-            Self::Folder { path, .. } => path.clone(),
-            Self::File { path, .. } => path.parent().unwrap_or(&path).to_path_buf(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileExplorerTab {
     id: Uuid,
@@ -213,8 +204,6 @@ impl FileExplorerTab {
             };
 
             if let Some(item) = item {
-                //let (item, _) = &items[row_idx];
-
                 if response.clicked() {
                     match item {
                         ExplorerItem::Folder { path, is_expanded } => {
@@ -241,46 +230,43 @@ impl FileExplorerTab {
 
             if ui.input(|i| i.pointer.primary_released()) {
                 if let Some(drag_payload) = drag_payload.take() {
-                    match drag_payload {
-                        EditorDragPayload::CodeFile(id, path) => {
-                            let new_relative_dir = if let Some(item) = item {
-                                item.dir_path()
-                            } else {
-                                PathBuf::new()
-                            };
+                    // Get new relative dir, a payload cannot be dropped onto a file, returning None
+                    let new_relative_dir = match item {
+                        Some(item) => match item {
+                            ExplorerItem::File { .. } => None,
+                            ExplorerItem::Folder { path, .. } => Some(path.clone()),
+                        },
+                        None => Some(PathBuf::new()),
+                    };
 
-                            let name = path
-                                .file_name()
-                                .map(|s| s.to_string_lossy().to_string())
-                                .unwrap_or_default();
+                    if let Some(new_relative_dir) = new_relative_dir {
+                        match drag_payload {
+                            EditorDragPayload::CodeFile(id, path) => {
+                                let name = path
+                                    .file_name()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_default();
 
-                            let new_relative_path = new_relative_dir.join(name);
+                                let new_relative_path = new_relative_dir.join(name);
 
-                            if let Err(e) = project.code_files.move_file(id, new_relative_path) {
-                                log::warn!("Failed to move file: {}", e);
-                            } else {
-                                println!("SUCCESS!");
+                                if let Err(e) = project.code_files.move_file(id, new_relative_path)
+                                {
+                                    log::warn!("Failed to move file: {}", e);
+                                }
                             }
-                        }
-                        EditorDragPayload::Folder(path) => {
-                            let new_relative_dir = if let Some(item) = item {
-                                item.dir_path()
-                            } else {
-                                PathBuf::new()
-                            };
+                            EditorDragPayload::Folder(path) => {
+                                let name = path
+                                    .file_name()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_default();
 
-                            let name = path
-                                .file_name()
-                                .map(|s| s.to_string_lossy().to_string())
-                                .unwrap_or_default();
+                                let new_relative_path = new_relative_dir.join(name);
 
-                            let new_relative_path = new_relative_dir.join(name);
-
-                            if let Err(e) = project.code_files.move_folder(path, new_relative_path)
-                            {
-                                log::warn!("Failed to move folder: {}", e);
-                            } else {
-                                println!("SUCCESS");
+                                if let Err(e) =
+                                    project.code_files.move_folder(path, new_relative_path)
+                                {
+                                    log::warn!("Failed to move folder: {}", e);
+                                }
                             }
                         }
                     }

@@ -121,6 +121,13 @@ impl CodeFiles {
         let _ = code_files.create_file("shared/bsdf/conductor.wgsl", CodeFileType::Shared);
         let _ = code_files.create_file("shared/bsdf/sampling.wgsl", CodeFileType::Shared);
 
+        for i in 0..100 {
+            let _ = code_files.create_file(
+                format!("shared/bsdf/sampling_{}.wgsl", i),
+                CodeFileType::Shared,
+            );
+        }
+
         code_files
     }
 
