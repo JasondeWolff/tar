@@ -242,6 +242,35 @@ impl CodeFiles {
         }
     }
 
+    pub fn move_folder<P: Into<PathBuf>>(
+        &mut self,
+        old_relative_path: PathBuf,
+        new_relative_path: P,
+    ) -> anyhow::Result<()> {
+        let new_relative_path: PathBuf = new_relative_path.into();
+
+        if old_relative_path != new_relative_path {
+            let old_path = self.code_path.join(&old_relative_path);
+            let new_path = self.code_path.join(&new_relative_path);
+
+            if let Some(parent) = new_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            std::fs::rename(old_path, new_path)?;
+
+            for file in self.files.values_mut() {
+                if file.relative_path.starts_with(&old_relative_path) {
+                    if let Ok(suffix) = file.relative_path.strip_prefix(&old_relative_path) {
+                        file.relative_path = new_relative_path.join(suffix);
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn delete_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(file) = self.files.remove(&id) {
             std::fs::remove_file(file.path(&self.code_path))?;

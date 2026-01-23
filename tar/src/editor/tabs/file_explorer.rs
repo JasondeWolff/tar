@@ -4,12 +4,21 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::editor::EditorDragPayload;
-use crate::project::{CodeFileType, Project};
+use crate::project::Project;
 
 #[derive(Clone)]
 enum ExplorerItem {
     Folder { path: PathBuf, is_expanded: bool },
     File { id: Uuid, path: PathBuf },
+}
+
+impl ExplorerItem {
+    fn dir_path(&self) -> PathBuf {
+        match self {
+            Self::Folder { path, .. } => path.clone(),
+            Self::File { path, .. } => path.parent().unwrap_or(&path).to_path_buf(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -194,33 +203,84 @@ impl FileExplorerTab {
         }
 
         // Handle clicks & drags
-        if response.clicked() || response.drag_started() {
-            if let Some(pos) = response.interact_pointer_pos() {
-                let row_idx =
-                    ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
-                if row_idx < items.len() {
-                    let (item, _) = &items[row_idx];
+        if let Some(pos) = response.interact_pointer_pos() {
+            let row_idx = ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
 
-                    if response.clicked() {
-                        match item {
-                            ExplorerItem::Folder { path, is_expanded } => {
-                                self.expanded_folders.insert(path.clone(), !is_expanded);
-                                self.selected = Some(path.clone());
-                            }
-                            ExplorerItem::File { path, .. } => {
-                                self.selected = Some(path.clone());
+            let item = if row_idx < items.len() {
+                Some(&items[row_idx].0)
+            } else {
+                None
+            };
+
+            if let Some(item) = item {
+                //let (item, _) = &items[row_idx];
+
+                if response.clicked() {
+                    match item {
+                        ExplorerItem::Folder { path, is_expanded } => {
+                            self.expanded_folders.insert(path.clone(), !is_expanded);
+                            self.selected = Some(path.clone());
+                        }
+                        ExplorerItem::File { path, .. } => {
+                            self.selected = Some(path.clone());
+                        }
+                    }
+                } else if response.drag_started() {
+                    match item {
+                        ExplorerItem::Folder { path, .. } => {
+                            *drag_payload = Some(EditorDragPayload::Folder(path.clone()));
+                            self.selected = Some(path.clone());
+                        }
+                        ExplorerItem::File { id, path } => {
+                            *drag_payload = Some(EditorDragPayload::CodeFile(*id, path.clone()));
+                            self.selected = Some(path.clone());
+                        }
+                    }
+                }
+            }
+
+            if ui.input(|i| i.pointer.primary_released()) {
+                if let Some(drag_payload) = drag_payload.take() {
+                    match drag_payload {
+                        EditorDragPayload::CodeFile(id, path) => {
+                            let new_relative_dir = if let Some(item) = item {
+                                item.dir_path()
+                            } else {
+                                PathBuf::new()
+                            };
+
+                            let name = path
+                                .file_name()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            let new_relative_path = new_relative_dir.join(name);
+
+                            if let Err(e) = project.code_files.move_file(id, new_relative_path) {
+                                log::warn!("Failed to move file: {}", e);
+                            } else {
+                                println!("SUCCESS!");
                             }
                         }
-                    } else if response.drag_started() {
-                        match item {
-                            ExplorerItem::Folder { path, .. } => {
-                                *drag_payload = Some(EditorDragPayload::Folder(path.clone()));
-                                self.selected = Some(path.clone());
-                            }
-                            ExplorerItem::File { id, path } => {
-                                *drag_payload =
-                                    Some(EditorDragPayload::CodeFile(id.clone(), path.clone()));
-                                self.selected = Some(path.clone());
+                        EditorDragPayload::Folder(path) => {
+                            let new_relative_dir = if let Some(item) = item {
+                                item.dir_path()
+                            } else {
+                                PathBuf::new()
+                            };
+
+                            let name = path
+                                .file_name()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            let new_relative_path = new_relative_dir.join(name);
+
+                            if let Err(e) = project.code_files.move_folder(path, new_relative_path)
+                            {
+                                log::warn!("Failed to move folder: {}", e);
+                            } else {
+                                println!("SUCCESS");
                             }
                         }
                     }
