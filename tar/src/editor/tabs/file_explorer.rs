@@ -48,11 +48,58 @@ impl FileExplorerTab {
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
+        ui.add_space(4.0);
+        self.draw_toolbar(ui);
+        ui.separator();
+
+        // File explorer with scrolling
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
                 self.draw_explorer(ui, viewport, project, drag_payload);
             });
+    }
+
+    fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+
+            // Create file button (always visible)
+            if ui
+                .button(icons::FILE_PLUS)
+                .on_hover_text("New File")
+                .clicked()
+            {
+                // TODO: Hook up create file logic
+            }
+
+            // Create folder button (always visible)
+            if ui
+                .button(icons::FOLDER_PLUS)
+                .on_hover_text("New Folder")
+                .clicked()
+            {
+                // TODO: Hook up create folder logic
+            }
+
+            if self.selected.is_some() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+
+                    if ui.button(icons::TRASH).on_hover_text("Delete").clicked() {
+                        // TODO: Hook up delete logic
+                    }
+
+                    if ui
+                        .button(icons::PENCIL_SIMPLE)
+                        .on_hover_text("Rename")
+                        .clicked()
+                    {
+                        // TODO: Hook up rename logic
+                    }
+                });
+            }
+        });
     }
 
     fn draw_explorer(
@@ -193,7 +240,10 @@ impl FileExplorerTab {
             );
         }
 
-        // Handle clicks & drags
+        if response.clicked() {
+            response.request_focus();
+        }
+
         if let Some(pos) = response.interact_pointer_pos() {
             let row_idx = ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
 
@@ -228,6 +278,10 @@ impl FileExplorerTab {
                 }
             }
 
+            if response.clicked() && item.is_none() {
+                self.selected = None;
+            }
+
             if ui.input(|i| i.pointer.primary_released()) {
                 if let Some(drag_payload) = drag_payload.take() {
                     // Get new relative dir, a payload cannot be dropped onto a file, returning None
@@ -249,9 +303,11 @@ impl FileExplorerTab {
 
                                 let new_relative_path = new_relative_dir.join(name);
 
-                                if let Err(e) = project.code_files.move_file(id, new_relative_path)
+                                if let Err(e) = project.code_files.move_file(id, &new_relative_path)
                                 {
                                     log::warn!("Failed to move file: {}", e);
+                                } else {
+                                    self.selected = Some(new_relative_path);
                                 }
                             }
                             EditorDragPayload::Folder(path) => {
@@ -263,15 +319,21 @@ impl FileExplorerTab {
                                 let new_relative_path = new_relative_dir.join(name);
 
                                 if let Err(e) =
-                                    project.code_files.move_folder(path, new_relative_path)
+                                    project.code_files.move_folder(path, &new_relative_path)
                                 {
                                     log::warn!("Failed to move folder: {}", e);
+                                } else {
+                                    self.selected = Some(new_relative_path);
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+
+        if !response.has_focus() {
+            self.selected = None;
         }
     }
 
