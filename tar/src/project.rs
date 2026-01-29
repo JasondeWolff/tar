@@ -5,11 +5,12 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use strum::EnumIter;
 use uuid::Uuid;
 
 use crate::render_graph::RenderGraph;
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, EnumIter)]
 pub enum CodeFileType {
     Fragment,
     Compute,
@@ -19,9 +20,25 @@ pub enum CodeFileType {
 impl CodeFileType {
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::Fragment => egui_phosphor::regular::CUBE,
+            Self::Fragment => egui_phosphor::regular::IMAGE,
             Self::Compute => egui_phosphor::regular::CPU,
-            Self::Shared => egui_phosphor::regular::SHARE_NETWORK,
+            Self::Shared => egui_phosphor::regular::CODE_SIMPLE,
+        }
+    }
+
+    pub fn labeled_icon(&self) -> String {
+        match self {
+            Self::Fragment => format!("{} Fragment", self.icon()),
+            Self::Compute => format!("{} Compute", self.icon()),
+            Self::Shared => format!("{} Shared", self.icon()),
+        }
+    }
+
+    pub fn file_extension(&self) -> &'static str {
+        match self {
+            Self::Fragment => "frag",
+            Self::Compute => "comp",
+            Self::Shared => "shared",
         }
     }
 }
@@ -110,22 +127,20 @@ impl CodeFiles {
             files: HashMap::new(),
         };
 
-        let _ = code_files.create_file("main.frag.wgsl", CodeFileType::Fragment);
-        let _ = code_files.create_file("bake_noise.comp.wgsl", CodeFileType::Compute);
-        let _ = code_files.create_file("atmosphere/march.frag.wgsl", CodeFileType::Fragment);
-        let _ = code_files.create_file("atmosphere/composite.frag.wgsl", CodeFileType::Fragment);
-        let _ = code_files.create_file("shared/common.wgsl", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/math.wgsl", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/diffuse.wgsl", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/dielectric.wgsl", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/conductor.wgsl", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/sampling.wgsl", CodeFileType::Shared);
+        let _ = code_files.create_file("main", CodeFileType::Fragment);
+        let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
+        let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
+        let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
+        let _ = code_files.create_file("shared/common", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/math", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
 
         for i in 0..100 {
-            let _ = code_files.create_file(
-                format!("shared/bsdf/sampling_{}.wgsl", i),
-                CodeFileType::Shared,
-            );
+            let _ =
+                code_files.create_file(format!("shared/bsdf/sampling_{}", i), CodeFileType::Shared);
         }
 
         code_files
@@ -144,6 +159,8 @@ impl CodeFiles {
         ty: CodeFileType,
     ) -> anyhow::Result<Uuid> {
         let relative_path = relative_path.into();
+        let relative_path = relative_path.with_extension(ty.file_extension());
+
         if self.contains_file(&relative_path) {
             anyhow::bail!("Code file already exists");
         }

@@ -1,10 +1,11 @@
 use egui_phosphor::regular as icons;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use strum::IntoEnumIterator;
 use uuid::Uuid;
 
 use crate::editor::EditorDragPayload;
-use crate::project::Project;
+use crate::project::{CodeFileType, Project};
 
 #[derive(Clone)]
 enum ExplorerItem {
@@ -49,7 +50,7 @@ impl FileExplorerTab {
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
         ui.add_space(4.0);
-        self.draw_toolbar(ui);
+        self.draw_toolbar(ui, project);
         ui.separator();
 
         // File explorer with scrolling
@@ -60,18 +61,52 @@ impl FileExplorerTab {
             });
     }
 
-    fn draw_toolbar(&mut self, ui: &mut egui::Ui) {
+    fn draw_toolbar(&mut self, ui: &mut egui::Ui, project: &mut Project) {
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
-            // Create file button (always visible)
-            if ui
-                .button(icons::FILE_PLUS)
-                .on_hover_text("New File")
-                .clicked()
-            {
-                // TODO: Hook up create file logic
-            }
+            ui.menu_button(icons::FILE_PLUS, |ui| {
+                for code_file_type in CodeFileType::iter() {
+                    if ui.button(code_file_type.labeled_icon()).clicked() {
+                        let new_relative_file_dir = if let Some(selected) = &self.selected {
+                            let is_dir = !project.code_files.contains_file(selected);
+
+                            if is_dir {
+                                selected.clone()
+                            } else {
+                                selected.parent().unwrap().to_path_buf()
+                            }
+                        } else {
+                            PathBuf::new()
+                        };
+
+                        let mut new_relative_file_path = new_relative_file_dir
+                            .join("new_shader")
+                            .with_extension(code_file_type.file_extension());
+                        for i in 1..10000 {
+                            if !project.code_files.contains_file(&new_relative_file_path) {
+                                break;
+                            }
+
+                            new_relative_file_path = new_relative_file_dir
+                                .join(format!("new_shader{}", i))
+                                .with_extension(code_file_type.file_extension());
+                        }
+
+                        match project
+                            .code_files
+                            .create_file(new_relative_file_path, code_file_type)
+                        {
+                            Ok(file) => {
+                                // TODO: select file and start renaming
+                            }
+                            Err(e) => log::error!("Failed to create file: {}", e),
+                        };
+
+                        ui.close();
+                    }
+                }
+            });
 
             // Create folder button (always visible)
             if ui
