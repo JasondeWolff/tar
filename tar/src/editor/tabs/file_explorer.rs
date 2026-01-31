@@ -14,6 +14,18 @@ enum ExplorerItem {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct RenamingState {
+    path: PathBuf,
+    new_name: String,
+    request_focus: bool,
+}
+
+enum RenameAction {
+    Cancel,
+    Confirm { old_path: PathBuf, new_name: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FileExplorerTab {
     id: Uuid,
 
@@ -21,6 +33,9 @@ pub struct FileExplorerTab {
     expanded_folders: HashMap<PathBuf, bool>,
 
     selected: Option<PathBuf>,
+
+    /// State for renaming a file or folder
+    renaming: Option<RenamingState>,
 }
 
 impl Default for FileExplorerTab {
@@ -29,6 +44,7 @@ impl Default for FileExplorerTab {
             id: Uuid::new_v4(),
             expanded_folders: HashMap::new(),
             selected: None,
+            renaming: None,
         }
     }
 }
@@ -95,10 +111,28 @@ impl FileExplorerTab {
 
                         match project
                             .code_files
-                            .create_file(new_relative_file_path, code_file_type)
+                            .create_file(new_relative_file_path.clone(), code_file_type)
                         {
-                            Ok(file) => {
-                                // TODO: select file and start renaming
+                            Ok(_id) => {
+                                // Select the new file and start renaming
+                                let name = new_relative_file_path
+                                    .file_stem()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_default();
+                                self.selected = Some(new_relative_file_path.clone());
+                                self.renaming = Some(RenamingState {
+                                    path: new_relative_file_path,
+                                    new_name: name,
+                                    request_focus: true,
+                                });
+                                // Expand parent folder if needed
+                                if let Some(parent) =
+                                    self.selected.as_ref().and_then(|p| p.parent())
+                                {
+                                    if !parent.as_os_str().is_empty() {
+                                        self.expanded_folders.insert(parent.to_path_buf(), true);
+                                    }
+                                }
                             }
                             Err(e) => log::error!("Failed to create file: {}", e),
                         };
@@ -130,7 +164,17 @@ impl FileExplorerTab {
                         .on_hover_text("Rename")
                         .clicked()
                     {
-                        // TODO: Hook up rename logic
+                        if let Some(selected) = &self.selected {
+                            let name = selected
+                                .file_name()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            self.renaming = Some(RenamingState {
+                                path: selected.clone(),
+                                new_name: name,
+                                request_focus: true,
+                            });
+                        }
                     }
                 });
             }
@@ -189,6 +233,9 @@ impl FileExplorerTab {
             .floor()
             .max(0.0) as usize;
         let last_visible = ((viewport.max.y - Self::TOP_PADDING) / row_height).ceil() as usize + 1;
+
+        // Track rename action to process after the loop
+        let mut rename_action: Option<RenameAction> = None;
 
         // Draw visible rows
         for (row_idx, (item, indent_level)) in items
@@ -259,20 +306,137 @@ impl FileExplorerTab {
                 }
             };
 
-            let label = format!("{} {}", icon, name);
-            let color = if is_selected {
-                selected_text_color
-            } else {
-                text_color
-            };
+            let is_renaming = self
+                .renaming
+                .as_ref()
+                .map(|r| &r.path == item_path)
+                .unwrap_or(false);
 
-            painter.text(
-                egui::pos2(text_x, text_y),
-                egui::Align2::LEFT_TOP,
-                label,
-                font_id.clone(),
-                color,
-            );
+            if is_renaming {
+                // Draw only the icon
+                let color = if is_selected {
+                    selected_text_color
+                } else {
+                    text_color
+                };
+
+                let icon_galley = painter.layout_no_wrap(icon.to_string(), font_id.clone(), color);
+                let icon_width = icon_galley.rect.width();
+                painter.galley(egui::pos2(text_x, text_y), icon_galley, color);
+
+                // Draw TextEdit for the name
+                let text_edit_x = text_x + icon_width + 4.0;
+                let text_edit_rect = egui::Rect::from_min_size(
+                    egui::pos2(text_edit_x, row_rect.top() + 1.0),
+                    egui::vec2(rect.right() - text_edit_x - 8.0, row_height - 2.0),
+                );
+
+                let renaming = self.renaming.as_mut().unwrap();
+
+                let text_edit = egui::TextEdit::singleline(&mut renaming.new_name)
+                    .font(font_id.clone())
+                    .frame(true)
+                    .margin(egui::vec2(4.0, 2.0));
+
+                let response = ui.put(text_edit_rect, text_edit);
+
+                if renaming.request_focus {
+                    response.request_focus();
+                    // Select all text
+                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), response.id) {
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(0),
+                                egui::text::CCursor::new(renaming.new_name.len()),
+                            )));
+                        state.store(ui.ctx(), response.id);
+                    }
+                    renaming.request_focus = false;
+                }
+
+                // Check for Enter (confirm) or Escape (cancel)
+                let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let escape_pressed = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                let lost_focus = response.lost_focus();
+
+                if escape_pressed {
+                    // Cancel renaming
+                    rename_action = Some(RenameAction::Cancel);
+                } else if enter_pressed || (lost_focus && !escape_pressed) {
+                    // Confirm renaming
+                    rename_action = Some(RenameAction::Confirm {
+                        old_path: item_path.clone(),
+                        new_name: renaming.new_name.clone(),
+                    });
+                }
+            } else {
+                let label = format!("{} {}", icon, name);
+                let color = if is_selected {
+                    selected_text_color
+                } else {
+                    text_color
+                };
+
+                painter.text(
+                    egui::pos2(text_x, text_y),
+                    egui::Align2::LEFT_TOP,
+                    label,
+                    font_id.clone(),
+                    color,
+                );
+            }
+        }
+
+        // Handle rename action after the loop
+        if let Some(action) = rename_action {
+            match action {
+                RenameAction::Cancel => {
+                    self.renaming = None;
+                }
+                RenameAction::Confirm { old_path, new_name } => {
+                    let new_name = new_name.trim();
+                    if !new_name.is_empty() {
+                        let new_path = old_path
+                            .parent()
+                            .map(|p| p.join(new_name))
+                            .unwrap_or_else(|| PathBuf::from(new_name));
+
+                        // Check if it's a file or folder and get file id if it's a file
+                        let file_id = project
+                            .code_files
+                            .files_iter()
+                            .find(|(_, f)| f.relative_path() == &old_path)
+                            .map(|(id, _)| *id);
+
+                        if let Some(id) = file_id {
+                            // It's a file - preserve extension
+                            let extension = old_path
+                                .extension()
+                                .map(|e| e.to_string_lossy().to_string());
+                            let new_path = if let Some(ext) = extension {
+                                new_path.with_extension(ext)
+                            } else {
+                                new_path
+                            };
+
+                            if let Err(e) = project.code_files.move_file(id, &new_path) {
+                                log::warn!("Failed to rename file: {}", e);
+                            } else {
+                                self.selected = Some(new_path);
+                            }
+                        } else {
+                            // It's a folder
+                            if let Err(e) = project.code_files.move_folder(old_path, &new_path) {
+                                log::warn!("Failed to rename folder: {}", e);
+                            } else {
+                                self.selected = Some(new_path);
+                            }
+                        }
+                    }
+                    self.renaming = None;
+                }
+            }
         }
 
         if response.clicked() {
@@ -367,7 +531,8 @@ impl FileExplorerTab {
             }
         }
 
-        if !response.has_focus() {
+        // Don't clear selection if we're renaming (TextEdit has focus instead)
+        if !response.has_focus() && self.renaming.is_none() {
             self.selected = None;
         }
     }
