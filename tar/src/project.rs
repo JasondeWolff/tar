@@ -447,6 +447,45 @@ impl CodeFiles {
         Ok(())
     }
 
+    /// Deletes a folder and all files within it
+    pub fn delete_folder<P: AsRef<Path>>(&mut self, relative_path: P) -> anyhow::Result<()> {
+        let relative_path = relative_path.as_ref();
+
+        // Remove from extra_dirs if it's there
+        self.extra_dirs.remove(relative_path);
+
+        // Also remove any extra_dirs that are children of this folder
+        let child_extra_dirs: Vec<PathBuf> = self
+            .extra_dirs
+            .iter()
+            .filter(|p| p.starts_with(relative_path))
+            .cloned()
+            .collect();
+        for child in child_extra_dirs {
+            self.extra_dirs.remove(&child);
+        }
+
+        // Remove all files within this folder
+        let files_to_delete: Vec<Uuid> = self
+            .files
+            .iter()
+            .filter(|(_, f)| f.relative_path.starts_with(relative_path))
+            .map(|(id, _)| *id)
+            .collect();
+
+        for id in files_to_delete {
+            self.files.remove(&id);
+        }
+
+        // Delete the folder from disk
+        let full_path = self.code_path.join(relative_path);
+        if full_path.exists() {
+            std::fs::remove_dir_all(full_path)?;
+        }
+
+        Ok(())
+    }
+
     pub fn files_iter(&self) -> impl Iterator<Item = (&Uuid, &CodeFile)> {
         self.files.iter()
     }

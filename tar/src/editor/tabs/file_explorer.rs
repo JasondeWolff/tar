@@ -198,7 +198,27 @@ impl FileExplorerTab {
                     ui.add_space(8.0);
 
                     if ui.button(icons::TRASH).on_hover_text("Delete").clicked() {
-                        // TODO: Hook up delete logic
+                        if let Some(selected) = &self.selected.clone() {
+                            // Check if it's a file or folder
+                            let file_id = project
+                                .code_files
+                                .files_iter()
+                                .find(|(_, f)| f.relative_path() == selected)
+                                .map(|(id, _)| *id);
+
+                            if let Some(id) = file_id {
+                                // It's a file
+                                if let Err(e) = project.code_files.delete_file(id) {
+                                    log::error!("Failed to delete file: {}", e);
+                                }
+                            } else {
+                                // It's a folder
+                                if let Err(e) = project.code_files.delete_folder(selected) {
+                                    log::error!("Failed to delete folder: {}", e);
+                                }
+                            }
+                            self.selected = None;
+                        }
                     }
 
                     if ui
