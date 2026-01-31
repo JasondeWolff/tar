@@ -148,7 +148,49 @@ impl FileExplorerTab {
                 .on_hover_text("New Folder")
                 .clicked()
             {
-                // TODO: Hook up create folder logic
+                let new_folder_parent = if let Some(selected) = &self.selected {
+                    let is_dir = !project.code_files.contains_file(selected);
+
+                    if is_dir {
+                        selected.clone()
+                    } else {
+                        selected.parent().unwrap().to_path_buf()
+                    }
+                } else {
+                    PathBuf::new()
+                };
+
+                // Find unique folder name
+                let mut new_folder_path = new_folder_parent.join("new_folder");
+                for i in 1..10000 {
+                    if !project.code_files.contains_folder(&new_folder_path) {
+                        break;
+                    }
+                    new_folder_path = new_folder_parent.join(format!("new_folder{}", i));
+                }
+
+                match project.code_files.create_folder(new_folder_path.clone()) {
+                    Ok(()) => {
+                        // Select the new folder and start renaming
+                        let name = new_folder_path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        self.selected = Some(new_folder_path.clone());
+                        self.renaming = Some(RenamingState {
+                            path: new_folder_path.clone(),
+                            new_name: name,
+                            request_focus: true,
+                        });
+                        // Expand parent folder if needed
+                        if let Some(parent) = new_folder_path.parent() {
+                            if !parent.as_os_str().is_empty() {
+                                self.expanded_folders.insert(parent.to_path_buf(), true);
+                            }
+                        }
+                    }
+                    Err(e) => log::error!("Failed to create folder: {}", e),
+                }
             }
 
             if self.selected.is_some() {
@@ -575,6 +617,41 @@ impl FileExplorerTab {
                 }
             } else if current_path.as_os_str().is_empty() {
                 files_here.push((*id, rel_path.clone()));
+            }
+        }
+
+        // Include extra_dirs (empty folders) at this level
+        for extra_dir in project.code_files.extra_dirs_iter() {
+            if let Some(parent) = extra_dir.parent() {
+                if parent == current_path {
+                    // This extra_dir is directly in current_path
+                    if !folders.contains(extra_dir) {
+                        folders.push(extra_dir.clone());
+                    }
+                } else if (parent.starts_with(current_path) || current_path.as_os_str().is_empty())
+                    && extra_dir != current_path
+                {
+                    // This extra_dir is nested deeper - extract the next folder level
+                    let components: Vec<_> = if current_path.as_os_str().is_empty() {
+                        extra_dir.components().collect()
+                    } else if let Ok(stripped) = extra_dir.strip_prefix(current_path) {
+                        stripped.components().collect()
+                    } else {
+                        continue;
+                    };
+
+                    if !components.is_empty() {
+                        let folder_name = current_path.join(components[0].as_os_str());
+                        if !folders.contains(&folder_name) {
+                            folders.push(folder_name);
+                        }
+                    }
+                }
+            } else if current_path.as_os_str().is_empty() {
+                // extra_dir is at root level (no parent)
+                if !folders.contains(extra_dir) {
+                    folders.push(extra_dir.clone());
+                }
             }
         }
 

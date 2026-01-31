@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{Read, Write},
     path::{Path, PathBuf},
 };
@@ -115,6 +115,9 @@ impl CodeFile {
 pub struct CodeFiles {
     code_path: PathBuf,
     files: HashMap<Uuid, CodeFile>,
+    /// Tracks explicitly created empty folders (not derived from file paths)
+    #[serde(default)]
+    extra_dirs: HashSet<PathBuf>,
 }
 
 impl CodeFiles {
@@ -125,6 +128,7 @@ impl CodeFiles {
         let mut code_files = Self {
             code_path,
             files: HashMap::new(),
+            extra_dirs: HashSet::new(),
         };
 
         let _ = code_files.create_file("main", CodeFileType::Fragment);
@@ -165,6 +169,15 @@ impl CodeFiles {
             anyhow::bail!("Code file already exists");
         }
 
+        // Remove any parent dirs from extra_dirs (they're now "real" folders)
+        if let Some(parent) = relative_path.parent() {
+            for ancestor in parent.ancestors() {
+                if !ancestor.as_os_str().is_empty() {
+                    self.extra_dirs.remove(ancestor);
+                }
+            }
+        }
+
         let file = CodeFile::new(relative_path, ty);
         let id = file.id;
         self.files.insert(id, file);
@@ -172,6 +185,59 @@ impl CodeFiles {
         self.save_file(id)?;
 
         Ok(id)
+    }
+
+    /// Creates an empty folder and tracks it in extra_dirs
+    pub fn create_folder<P: Into<PathBuf>>(&mut self, relative_path: P) -> anyhow::Result<()> {
+        let relative_path = relative_path.into();
+
+        // Check if this folder already exists (either as extra_dir or derived from files)
+        if self.extra_dirs.contains(&relative_path) {
+            anyhow::bail!("Folder already exists");
+        }
+
+        // Check if any file already implies this folder exists
+        let folder_exists = self.files.values().any(|f| {
+            f.relative_path
+                .parent()
+                .map(|p| p.starts_with(&relative_path) || p == relative_path)
+                .unwrap_or(false)
+        });
+
+        if folder_exists {
+            anyhow::bail!("Folder already exists");
+        }
+
+        // Create the directory on disk
+        let full_path = self.code_path.join(&relative_path);
+        std::fs::create_dir_all(&full_path)?;
+
+        // Track it in extra_dirs
+        self.extra_dirs.insert(relative_path);
+
+        Ok(())
+    }
+
+    /// Checks if a folder exists (either as extra_dir or derived from files)
+    pub fn contains_folder<P: AsRef<Path>>(&self, relative_path: P) -> bool {
+        let relative_path = relative_path.as_ref();
+
+        if self.extra_dirs.contains(relative_path) {
+            return true;
+        }
+
+        // Check if any file implies this folder exists
+        self.files.values().any(|f| {
+            f.relative_path
+                .parent()
+                .map(|p| p.starts_with(relative_path) || p == relative_path)
+                .unwrap_or(false)
+        })
+    }
+
+    /// Returns iterator over extra_dirs
+    pub fn extra_dirs_iter(&self) -> impl Iterator<Item = &PathBuf> {
+        self.extra_dirs.iter()
     }
 
     pub fn get_source(&self, id: Uuid) -> anyhow::Result<String> {
@@ -232,6 +298,64 @@ impl CodeFiles {
             self.load_file(id)?;
         }
 
+        // Scan for empty directories on disk and add them to extra_dirs
+        self.scan_empty_dirs()?;
+
+        Ok(())
+    }
+
+    /// Scans the code directory for empty folders and adds them to extra_dirs
+    fn scan_empty_dirs(&mut self) -> anyhow::Result<()> {
+        self.scan_empty_dirs_recursive(&self.code_path.clone(), &PathBuf::new())
+    }
+
+    fn scan_empty_dirs_recursive(
+        &mut self,
+        full_path: &Path,
+        relative_path: &Path,
+    ) -> anyhow::Result<()> {
+        if !full_path.is_dir() {
+            return Ok(());
+        }
+
+        let entries: Vec<_> = std::fs::read_dir(full_path)?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        let mut has_files = false;
+        let mut subdirs = Vec::new();
+
+        for entry in entries {
+            let path = entry.path();
+            if path.is_dir() {
+                subdirs.push(path);
+            } else {
+                has_files = true;
+            }
+        }
+
+        // Recursively scan subdirectories
+        for subdir in &subdirs {
+            let subdir_name = subdir.file_name().unwrap();
+            let subdir_relative = relative_path.join(subdir_name);
+            self.scan_empty_dirs_recursive(subdir, &subdir_relative)?;
+        }
+
+        // If this directory has no files and no subdirs, it's empty
+        // Also check if this folder is not already implied by existing files
+        if !has_files && subdirs.is_empty() && !relative_path.as_os_str().is_empty() {
+            let folder_implied_by_files = self.files.values().any(|f| {
+                f.relative_path
+                    .parent()
+                    .map(|p| p == relative_path || p.starts_with(relative_path))
+                    .unwrap_or(false)
+            });
+
+            if !folder_implied_by_files {
+                self.extra_dirs.insert(relative_path.to_path_buf());
+            }
+        }
+
         Ok(())
     }
 
@@ -283,11 +407,29 @@ impl CodeFiles {
 
             std::fs::rename(old_path, new_path)?;
 
+            // Update file paths
             for file in self.files.values_mut() {
                 if file.relative_path.starts_with(&old_relative_path) {
                     if let Ok(suffix) = file.relative_path.strip_prefix(&old_relative_path) {
                         file.relative_path = new_relative_path.join(suffix);
                     }
+                }
+            }
+
+            // Update extra_dirs paths
+            let dirs_to_update: Vec<PathBuf> = self
+                .extra_dirs
+                .iter()
+                .filter(|p| p.starts_with(&old_relative_path) || **p == old_relative_path)
+                .cloned()
+                .collect();
+
+            for old_dir in dirs_to_update {
+                self.extra_dirs.remove(&old_dir);
+                if old_dir == old_relative_path {
+                    self.extra_dirs.insert(new_relative_path.clone());
+                } else if let Ok(suffix) = old_dir.strip_prefix(&old_relative_path) {
+                    self.extra_dirs.insert(new_relative_path.join(suffix));
                 }
             }
         }
