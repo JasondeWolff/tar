@@ -28,7 +28,7 @@ pub enum EditorDragPayload {
 }
 
 pub struct Editor {
-    tree: Tree<Tab>,
+    tree: Option<Tree<Tab>>,
     popups: HashMap<TypeId, Box<dyn Popup>>,
     drag_payload: Option<EditorDragPayload>,
 }
@@ -41,18 +41,37 @@ impl Default for Editor {
 
 impl Editor {
     pub fn new() -> Self {
+        Self {
+            tree: None,
+            popups: HashMap::new(),
+            drag_payload: None,
+        }
+    }
+
+    fn build_tree(project: &Project) -> Tree<Tab> {
         let mut tiles = Tiles::default();
 
         let viewport_id = tiles.insert_pane(Tab::Viewport(ViewportTab::default()));
-        let code_editor_id = tiles.insert_pane(Tab::CodeEditor(CodeEditorTab::default()));
         let render_graph_id = tiles.insert_pane(Tab::RenderGraph(RenderGraphTab::default()));
         let console_id = tiles.insert_pane(Tab::Console(ConsoleTab::default()));
         let file_explorer_id = tiles.insert_pane(Tab::FileExplorer(FileExplorerTab::default()));
 
-        let main_tabs = egui_tiles::Tabs {
-            children: vec![code_editor_id, render_graph_id],
-            active: Some(code_editor_id),
+        let first_code_file = project.code_files.files_iter().next();
+
+        let main_tabs = if let Some(first_code_file) = first_code_file {
+            let code_editor_id =
+                tiles.insert_pane(Tab::CodeEditor(CodeEditorTab::new(first_code_file.1)));
+            egui_tiles::Tabs {
+                children: vec![code_editor_id, render_graph_id],
+                active: Some(code_editor_id),
+            }
+        } else {
+            egui_tiles::Tabs {
+                children: vec![render_graph_id],
+                active: Some(render_graph_id),
+            }
         };
+
         let main_id = tiles.insert_container(egui_tiles::Container::Tabs(main_tabs));
 
         // Left side: viewport (top) and console (bottom) - vertical split
@@ -77,6 +96,7 @@ impl Editor {
         // Root: left and right side by side - horizontal split
         let mut root_shares = egui_tiles::Shares::default();
         root_shares[left_id] = 0.25;
+
         root_shares[right_id] = 0.75;
 
         let root_linear = egui_tiles::Linear {
@@ -87,12 +107,7 @@ impl Editor {
         let root = tiles.insert_container(egui_tiles::Container::Linear(root_linear));
 
         let tree = Tree::new("my_tree", root, tiles);
-
-        Self {
-            tree,
-            popups: HashMap::new(),
-            drag_payload: None,
-        }
+        tree
     }
 
     fn open_popup<T: Popup + 'static>(&mut self, popup: T) -> bool {
@@ -215,10 +230,14 @@ impl Editor {
             )
             .show(egui_ctx, |ui| {
                 if let Some(project) = project {
-                    self.tree.ui(
-                        &mut TabViewer::new(key_modifiers, project, &mut self.drag_payload),
-                        ui,
-                    );
+                    if let Some(tree) = &mut self.tree {
+                        tree.ui(
+                            &mut TabViewer::new(key_modifiers, project, &mut self.drag_payload),
+                            ui,
+                        );
+                    } else {
+                        self.tree = Some(Self::build_tree(project));
+                    }
                 }
             });
 

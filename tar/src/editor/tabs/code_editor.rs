@@ -3,6 +3,7 @@ use uuid::Uuid;
 use crate::{
     editor::code_editor::{syntax::Syntax, themes::ColorTheme, CodeEditor},
     egui_util::KeyModifiers,
+    project::{CodeFile, Project},
 };
 
 const DEFAULT_CODE: &str = r#"struct VertexOutput {
@@ -45,22 +46,22 @@ impl PartialEq for CodeEditorTab {
     }
 }
 
-impl Default for CodeEditorTab {
-    fn default() -> Self {
-        let code_editor = CodeEditor::new(DEFAULT_CODE, ColorTheme::GITHUB_DARK, Syntax::wgsl());
+impl CodeEditorTab {
+    pub fn new(code_file: &CodeFile) -> Self {
+        let code_editor =
+            CodeEditor::new(&code_file.source, ColorTheme::GITHUB_DARK, Syntax::wgsl());
+
         Self {
-            id: Uuid::new_v4(),
+            id: code_file.id(),
             code_editor,
         }
     }
-}
 
-impl CodeEditorTab {
     pub fn id(&self) -> Uuid {
         self.id
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, project: &mut Project, key_modifiers: &KeyModifiers) {
         self.code_editor.ui(ui, key_modifiers);
     }
 }

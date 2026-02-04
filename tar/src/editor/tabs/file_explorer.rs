@@ -282,8 +282,7 @@ impl FileExplorerTab {
         let first_visible = ((viewport.min.y - Self::TOP_PADDING) / row_height)
             .floor()
             .max(0.0) as usize;
-        let last_visible =
-            ((viewport.max.y - Self::TOP_PADDING) / row_height).ceil() as usize + 1;
+        let last_visible = ((viewport.max.y - Self::TOP_PADDING) / row_height).ceil() as usize + 1;
 
         let mut rename_action: Option<RenameAction> = None;
 
@@ -346,7 +345,15 @@ impl FileExplorerTab {
         }
 
         self.handle_rename_action(rename_action, project);
-        self.handle_interactions(ui, &response, rect, row_height, &items, project, drag_payload);
+        self.handle_interactions(
+            ui,
+            &response,
+            rect,
+            row_height,
+            &items,
+            project,
+            drag_payload,
+        );
     }
 
     fn get_hovered_row(
@@ -572,8 +579,7 @@ impl FileExplorerTab {
         }
 
         if let Some(pos) = response.interact_pointer_pos() {
-            let row_idx =
-                ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
+            let row_idx = ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
             let item = items.get(row_idx).map(|(item, _)| item);
 
             if let Some(item) = item {
@@ -606,6 +612,8 @@ impl FileExplorerTab {
             }
             ExplorerItem::File { path, .. } => {
                 self.selected = Some(path.clone());
+
+                // TODO: open and focus on code editor
             }
         }
     }
@@ -717,7 +725,9 @@ impl FileExplorerTab {
         let is_root = current_path.as_os_str().is_empty();
 
         for (_, file) in project.code_files.files_iter() {
-            if let Some(folder) = self.extract_child_folder(file.relative_path(), current_path, is_root) {
+            if let Some(folder) =
+                self.extract_child_folder(file.relative_path(), current_path, is_root)
+            {
                 if !folders.contains(&folder) {
                     folders.push(folder);
                 }

@@ -92,7 +92,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui, self.project);
             }
             Tab::CodeEditor(tab) => {
-                tab.ui(ui, self.key_modifiers);
+                tab.ui(ui, self.project, self.key_modifiers);
             }
         }
 

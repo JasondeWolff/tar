@@ -79,7 +79,7 @@ pub struct CodeFile {
     id: Uuid,
     relative_path: PathBuf,
     ty: CodeFileType,
-    source: String,
+    pub source: String,
 }
 
 impl CodeFile {
