@@ -28,8 +28,13 @@ pub enum Tab {
 impl std::fmt::Display for Tab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CodeEditor(_) => {
-                write!(f, "{} Code Editor", egui_phosphor::regular::CODE)
+            Self::CodeEditor(code_editor) => {
+                write!(
+                    f,
+                    "{} {}",
+                    egui_phosphor::regular::CODE,
+                    code_editor.title()
+                )
             }
             Self::Console(_) => {
                 write!(f, "{} Console", egui_phosphor::regular::TEXT_ALIGN_LEFT)

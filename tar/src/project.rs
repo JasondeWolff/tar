@@ -132,20 +132,20 @@ impl CodeFiles {
         };
 
         let _ = code_files.create_file("main", CodeFileType::Fragment);
-        let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
-        let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
-        let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
-        let _ = code_files.create_file("shared/common", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/math", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
+        // let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
+        // let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
+        // let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
+        // let _ = code_files.create_file("shared/common", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/math", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
 
-        for i in 0..100 {
-            let _ =
-                code_files.create_file(format!("shared/bsdf/sampling_{}", i), CodeFileType::Shared);
-        }
+        // for i in 0..100 {
+        //     let _ =
+        //         code_files.create_file(format!("shared/bsdf/sampling_{}", i), CodeFileType::Shared);
+        // }
 
         code_files
     }
@@ -285,7 +285,10 @@ impl CodeFiles {
     pub fn load_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get_mut(&id) {
             let mut file = std::fs::File::open(code_file.path(&self.code_path))?;
-            file.read_to_string(&mut code_file.source)?;
+
+            let mut loaded_src = String::new();
+            file.read_to_string(&mut loaded_src)?;
+            code_file.source = loaded_src;
 
             Ok(())
         } else {
