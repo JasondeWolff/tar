@@ -75,6 +75,7 @@ impl FileExplorerTab {
         ui: &mut egui::Ui,
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
+        file_to_open: &mut Option<Uuid>,
     ) {
         ui.add_space(4.0);
         self.draw_toolbar(ui, project);
@@ -83,7 +84,7 @@ impl FileExplorerTab {
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
-                self.draw_explorer(ui, viewport, project, drag_payload);
+                self.draw_explorer(ui, viewport, project, drag_payload, file_to_open);
             });
     }
 
@@ -251,6 +252,7 @@ impl FileExplorerTab {
         viewport: egui::Rect,
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
+        file_to_open: &mut Option<Uuid>,
     ) {
         let font_id = egui::FontId::proportional(14.0);
         let text_height = ui.text_style_height(&egui::TextStyle::Body);
@@ -353,7 +355,8 @@ impl FileExplorerTab {
             &items,
             project,
             drag_payload,
-        );
+            file_to_open,
+        )
     }
 
     fn get_hovered_row(
@@ -573,6 +576,7 @@ impl FileExplorerTab {
         items: &[(ExplorerItem, usize)],
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
+        file_to_open: &mut Option<Uuid>,
     ) {
         if response.clicked() {
             response.request_focus();
@@ -584,7 +588,7 @@ impl FileExplorerTab {
 
             if let Some(item) = item {
                 if response.clicked() {
-                    self.handle_item_click(item);
+                    self.handle_item_click(item, file_to_open);
                 } else if response.drag_started() {
                     self.handle_drag_start(item, drag_payload);
                 }
@@ -604,15 +608,16 @@ impl FileExplorerTab {
         }
     }
 
-    fn handle_item_click(&mut self, item: &ExplorerItem) {
+    fn handle_item_click(&mut self, item: &ExplorerItem, file_to_open: &mut Option<Uuid>) {
         match item {
             ExplorerItem::Folder { path, is_expanded } => {
                 self.expanded_folders.insert(path.clone(), !is_expanded);
                 self.selected = Some(path.clone());
             }
-            ExplorerItem::File { path, .. } => {
+            ExplorerItem::File { path, id } => {
                 self.selected = Some(path.clone());
 
+                *file_to_open = Some(*id)
                 // TODO: open and focus on code editor
             }
         }

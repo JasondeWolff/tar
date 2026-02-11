@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 use crate::{
     editor::{
         tabs::{
@@ -56,6 +58,7 @@ pub struct TabViewer<'a> {
     key_modifiers: &'a KeyModifiers,
     project: &'a mut Project,
     drag_payload: &'a mut Option<EditorDragPayload>,
+    file_to_open: &'a mut Option<Uuid>,
 }
 
 impl<'a> TabViewer<'a> {
@@ -63,11 +66,13 @@ impl<'a> TabViewer<'a> {
         key_modifiers: &'a KeyModifiers,
         project: &'a mut Project,
         drag_payload: &'a mut Option<EditorDragPayload>,
+        file_to_open: &'a mut Option<Uuid>,
     ) -> Self {
         Self {
             key_modifiers,
             project,
             drag_payload,
+            file_to_open,
         }
     }
 }
@@ -91,7 +96,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui);
             }
             Tab::FileExplorer(tab) => {
-                tab.ui(ui, self.project, self.drag_payload);
+                tab.ui(ui, self.project, self.drag_payload, self.file_to_open);
             }
             Tab::RenderGraph(tab) => {
                 tab.ui(ui, self.project);

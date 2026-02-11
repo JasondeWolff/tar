@@ -106,8 +106,7 @@ impl Editor {
         };
         let root = tiles.insert_container(egui_tiles::Container::Linear(root_linear));
 
-        let tree = Tree::new("my_tree", root, tiles);
-        tree
+        Tree::new("my_tree", root, tiles)
     }
 
     fn open_popup<T: Popup + 'static>(&mut self, popup: T) -> bool {
@@ -231,10 +230,87 @@ impl Editor {
             .show(egui_ctx, |ui| {
                 if let Some(project) = project {
                     if let Some(tree) = &mut self.tree {
+                        let mut file_to_open = None;
+
                         tree.ui(
-                            &mut TabViewer::new(key_modifiers, project, &mut self.drag_payload),
+                            &mut TabViewer::new(
+                                key_modifiers,
+                                project,
+                                &mut self.drag_payload,
+                                &mut file_to_open,
+                            ),
                             ui,
                         );
+
+                        if let Some(file_to_open) = file_to_open {
+                            if project.code_files.get_file(file_to_open).is_some() {
+                                // First, check if a code editor for this file already exists
+                                let mut existing_tile = None;
+                                let mut code_editor_container = None;
+                                let mut first_tabs_container = None;
+
+                                for (tile_id, tile) in tree.tiles.iter() {
+                                    if let egui_tiles::Tile::Container(
+                                        egui_tiles::Container::Tabs(tabs),
+                                    ) = tile
+                                    {
+                                        if first_tabs_container.is_none() {
+                                            first_tabs_container = Some(tile_id);
+                                        }
+
+                                        for &child_id in &tabs.children {
+                                            if let Some(egui_tiles::Tile::Pane(Tab::CodeEditor(
+                                                editor,
+                                            ))) = tree.tiles.get(child_id)
+                                            {
+                                                if code_editor_container.is_none() {
+                                                    code_editor_container = Some(tile_id);
+                                                }
+
+                                                if editor.id() == file_to_open {
+                                                    existing_tile = Some((tile_id, child_id));
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if existing_tile.is_some() {
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // Prefer container with code editors, fallback to any tabs container
+                                let target_container =
+                                    code_editor_container.or(first_tabs_container);
+
+                                if let Some((&container_id, existing_id)) = existing_tile {
+                                    // Focus the existing tab
+                                    if let Some(egui_tiles::Tile::Container(
+                                        egui_tiles::Container::Tabs(tabs),
+                                    )) = tree.tiles.get_mut(container_id)
+                                    {
+                                        tabs.active = Some(existing_id);
+                                    }
+                                } else if let Some(&container_id) = target_container {
+                                    // Create a new tab and add it to the container
+                                    let code_file =
+                                        project.code_files.get_file(file_to_open).unwrap();
+                                    let new_tab = Tab::CodeEditor(CodeEditorTab::new(code_file));
+                                    let new_tile_id = tree.tiles.insert_pane(new_tab);
+
+                                    if let Some(egui_tiles::Tile::Container(
+                                        egui_tiles::Container::Tabs(tabs),
+                                    )) = tree.tiles.get_mut(container_id)
+                                    {
+                                        tabs.children.push(new_tile_id);
+                                        tabs.active = Some(new_tile_id);
+                                    }
+                                }
+                            } else {
+                                log::warn!("Failed to open {} in code editor.", file_to_open);
+                            }
+                        }
                     } else {
                         self.tree = Some(Self::build_tree(project));
                     }
