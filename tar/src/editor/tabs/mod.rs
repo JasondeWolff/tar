@@ -27,6 +27,12 @@ pub enum Tab {
     Viewport(ViewportTab),
 }
 
+impl Tab {
+    pub fn variant_eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
 impl std::fmt::Display for Tab {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

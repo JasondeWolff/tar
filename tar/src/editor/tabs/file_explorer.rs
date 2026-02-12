@@ -140,13 +140,25 @@ impl FileExplorerTab {
 
     fn draw_create_file_menu(&mut self, ui: &mut egui::Ui, project: &mut Project) {
         ui.menu_button(icons::FILE_PLUS, |ui| {
-            for file_type in CodeFileType::iter() {
-                if ui.button(file_type.labeled_icon()).clicked() {
-                    self.create_new_file(project, file_type);
-                    ui.close();
-                }
-            }
+            self.draw_create_file_menu_options(ui, project);
         });
+    }
+
+    pub fn draw_create_file_menu_options(
+        &mut self,
+        ui: &mut egui::Ui,
+        project: &mut Project,
+    ) -> bool {
+        for file_type in CodeFileType::iter() {
+            if ui.button(file_type.labeled_icon()).clicked() {
+                self.create_new_file(project, file_type);
+                ui.close();
+
+                return true;
+            }
+        }
+
+        false
     }
 
     fn create_new_file(&mut self, project: &mut Project, file_type: CodeFileType) {

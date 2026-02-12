@@ -1,14 +1,18 @@
-use std::{any::TypeId, collections::HashMap, path::PathBuf};
+use std::{any::TypeId, collections::HashMap, mem::Discriminant, path::PathBuf};
 
-use egui_tiles::{Tiles, Tree};
+use egui_tiles::{TileId, Tiles, Tree};
 use uuid::Uuid;
 
 use crate::{
     editor::{
         popup::{create_project::CreateProject, open_project::OpenProject, Popup},
         tabs::{
-            code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
-            render_graph::RenderGraphTab, viewport::ViewportTab, Tab, TabViewer,
+            code_editor::CodeEditorTab,
+            console::ConsoleTab,
+            file_explorer::{self, FileExplorerTab},
+            render_graph::RenderGraphTab,
+            viewport::ViewportTab,
+            Tab, TabViewer,
         },
     },
     egui_util::KeyModifiers,
@@ -27,28 +31,13 @@ pub enum EditorDragPayload {
     Folder(PathBuf),
 }
 
-pub struct Editor {
-    tree: Option<Tree<Tab>>,
-    popups: HashMap<TypeId, Box<dyn Popup>>,
-    drag_payload: Option<EditorDragPayload>,
+struct Tabs {
+    tree: Tree<Tab>,
+    file_explorer_id: TileId,
 }
 
-impl Default for Editor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Editor {
-    pub fn new() -> Self {
-        Self {
-            tree: None,
-            popups: HashMap::new(),
-            drag_payload: None,
-        }
-    }
-
-    fn build_tree(project: &Project) -> Tree<Tab> {
+impl Tabs {
+    fn new(project: &Project) -> Self {
         let mut tiles = Tiles::default();
 
         let viewport_id = tiles.insert_pane(Tab::Viewport(ViewportTab::default()));
@@ -106,7 +95,50 @@ impl Editor {
         };
         let root = tiles.insert_container(egui_tiles::Container::Linear(root_linear));
 
-        Tree::new("my_tree", root, tiles)
+        let tree = Tree::new("my_tree", root, tiles);
+
+        Self {
+            tree,
+            file_explorer_id,
+        }
+    }
+
+    pub fn get_container_and_tile_id(&self, target_tab: &Tab) -> Option<(TileId, TileId)> {
+        for (tile_id, tile) in self.tree.tiles.iter() {
+            if let egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs)) = tile {
+                for &child_id in &tabs.children {
+                    if let Some(egui_tiles::Tile::Pane(tab)) = self.tree.tiles.get(child_id) {
+                        if target_tab.variant_eq(tab) {
+                            return Some((*tile_id, child_id));
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+}
+
+pub struct Editor {
+    tabs: Option<Tabs>,
+    popups: HashMap<TypeId, Box<dyn Popup>>,
+    drag_payload: Option<EditorDragPayload>,
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Editor {
+    pub fn new() -> Self {
+        Self {
+            tabs: None,
+            popups: HashMap::new(),
+            drag_payload: None,
+        }
     }
 
     fn open_popup<T: Popup + 'static>(&mut self, popup: T) -> bool {
@@ -163,27 +195,59 @@ impl Editor {
 
                             self.open_popup(OpenProject::default());
                         }
-                    });
 
-                    ui.menu_button("Window", |ui| {
-                        if ui
-                            .button("Code Editor")
-                            .on_hover_text("Open the Code Editor")
-                            .clicked()
-                        {
-                            // self.dock_state
-                            //     .add_window(vec![Tab::CodeEditor(CodeEditorTab::default())]);
-                            ui.close();
-                        }
+                        if let (Some(tabs), Some(project)) = (&mut self.tabs, project.as_mut()) {
+                            if let Some((file_explorer_container, file_explorer)) = tabs
+                                .get_container_and_tile_id(&Tab::FileExplorer(
+                                    FileExplorerTab::default(), // TODO: unclean overhead?
+                                ))
+                            {
+                                ui.menu_button("New File", |ui| {
+                                    let mut file_explorer_requires_focus = false;
 
-                        if ui
-                            .button("Viewport")
-                            .on_hover_text("Open the Viewport")
-                            .clicked()
-                        {
-                            // self.dock_state
-                            //     .add_window(vec![Tab::Viewport(ViewportTab::default())]);
-                            ui.close();
+                                    // Show options to create different file types
+                                    if let Some(file_explorer_tab) =
+                                        tabs.tree.tiles.get_mut(file_explorer).and_then(|tile| {
+                                            if let egui_tiles::Tile::Pane(Tab::FileExplorer(
+                                                explorer,
+                                            )) = tile
+                                            {
+                                                Some(explorer)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                    {
+                                        file_explorer_requires_focus = file_explorer_tab
+                                            .draw_create_file_menu_options(ui, project);
+                                    }
+
+                                    if file_explorer_requires_focus {
+                                        // Focus on file explorer tab
+                                        if let Some(file_explorer_container) = tabs
+                                            .tree
+                                            .tiles
+                                            .get_mut(file_explorer_container)
+                                            .and_then(|tile| {
+                                                if let egui_tiles::Tile::Container(
+                                                    egui_tiles::Container::Tabs(tabs),
+                                                ) = tile
+                                                {
+                                                    Some(tabs)
+                                                } else {
+                                                    None
+                                                }
+                                            })
+                                        {
+                                            file_explorer_container.active = Some(file_explorer);
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            ui.add_enabled_ui(false, |ui| {
+                                ui.menu_button("New File", |_| {});
+                            });
                         }
                     });
                 });
@@ -229,7 +293,7 @@ impl Editor {
             )
             .show(egui_ctx, |ui| {
                 if let Some(project) = project {
-                    if let Some(tree) = &mut self.tree {
+                    if let Some(tree) = self.tabs.as_mut().map(|tabs| &mut tabs.tree) {
                         let mut file_to_open = None;
 
                         tree.ui(
@@ -312,7 +376,7 @@ impl Editor {
                             }
                         }
                     } else {
-                        self.tree = Some(Self::build_tree(project));
+                        self.tabs = Some(Tabs::new(project));
                     }
                 }
             });
