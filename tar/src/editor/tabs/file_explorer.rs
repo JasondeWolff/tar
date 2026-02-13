@@ -183,6 +183,10 @@ impl FileExplorerTab {
                     .unwrap_or_default();
                 self.start_renaming(path.clone(), name);
                 self.expand_parent(&path);
+
+                if let Err(e) = project.save() {
+                    log::warn!("Failed to save project: {e}");
+                }
             }
             Err(e) => log::error!("Failed to create file: {}", e),
         }
@@ -217,6 +221,10 @@ impl FileExplorerTab {
                     .unwrap_or_default();
                 self.start_renaming(path.clone(), name);
                 self.expand_parent(&path);
+
+                if let Err(e) = project.save() {
+                    log::warn!("Failed to save project: {e}");
+                }
             }
             Err(e) => log::error!("Failed to create folder: {}", e),
         }
@@ -230,9 +238,15 @@ impl FileExplorerTab {
                     None => project.code_files.delete_folder(&selected),
                 };
 
-                if let Err(e) = result {
-                    log::error!("Failed to delete: {}", e);
+                match result {
+                    Ok(()) => {
+                        if let Err(e) = project.save() {
+                            log::warn!("Failed to save project: {e}");
+                        }
+                    }
+                    Err(e) => log::error!("Failed to delete: {e}"),
                 }
+
                 self.selected = None;
             }
         }
@@ -570,8 +584,14 @@ impl FileExplorerTab {
                     };
 
                     match result {
-                        Ok(new_path) => self.selected = Some(new_path),
-                        Err(e) => log::warn!("Failed to rename: {}", e),
+                        Ok(new_path) => {
+                            self.selected = Some(new_path);
+
+                            if let Err(e) = project.save() {
+                                log::warn!("Failed to save project: {e}");
+                            }
+                        }
+                        Err(e) => log::warn!("Failed to rename: {e}"),
                     }
                 }
                 self.renaming = None;
@@ -677,6 +697,7 @@ impl FileExplorerTab {
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_default();
                 let new_path = target_dir.join(name);
+
                 project
                     .code_files
                     .move_file(id, &new_path)
@@ -688,6 +709,7 @@ impl FileExplorerTab {
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_default();
                 let new_path = target_dir.join(name);
+
                 project
                     .code_files
                     .move_folder(path, &new_path)
@@ -696,8 +718,14 @@ impl FileExplorerTab {
         };
 
         match result {
-            Ok(new_path) => self.selected = Some(new_path),
-            Err(e) => log::warn!("Failed to move: {}", e),
+            Ok(new_path) => {
+                self.selected = Some(new_path);
+
+                if let Err(e) = project.save() {
+                    log::warn!("Failed to save project: {e}");
+                }
+            }
+            Err(e) => log::warn!("Failed to move: {e}"),
         }
     }
 

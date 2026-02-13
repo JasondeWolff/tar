@@ -132,15 +132,15 @@ impl CodeFiles {
         };
 
         let _ = code_files.create_file("main", CodeFileType::Fragment);
-        // let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
-        // let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
-        // let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
-        // let _ = code_files.create_file("shared/common", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/math", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
+        let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
+        let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
+        let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
+        let _ = code_files.create_file("shared/common", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/math", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
+        let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
 
         // for i in 0..100 {
         //     let _ =
