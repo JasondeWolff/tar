@@ -4,7 +4,7 @@
 use egui::epaint::text::PlacedRow;
 use egui::Color32;
 use ropey::Rope;
-use std::hash::{Hash, Hasher};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 
 use crate::editor::code_editor::highlighting::highlight;
@@ -103,6 +103,8 @@ enum TouchScrollAxis {
 
 pub struct CodeEditor {
     pub doc: Rope,
+    doc_hash: u64,
+
     edit_stack: EditStack,
     max_line_width: Option<f32>,
     text_layout_job: Option<egui::text::LayoutJob>,
@@ -126,8 +128,9 @@ pub struct CodeEditor {
 
 impl CodeEditor {
     pub fn new(text: &str, theme: ColorTheme, syntax: Syntax) -> Self {
-        Self {
+        let mut code_editor = Self {
             doc: Rope::from_str(text),
+            doc_hash: 0,
             edit_stack: EditStack::default(),
             max_line_width: None,
             text_layout_job: None,
@@ -144,19 +147,28 @@ impl CodeEditor {
             theme,
             syntax,
             fontsize: 14.0,
-        }
+        };
+
+        code_editor.update_doc_hash();
+
+        code_editor
     }
 
     // ========================================================================
     // Public API
     // ========================================================================
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, key_modifiers: &KeyModifiers) -> bool {
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_viewport(ui, |ui, viewport| {
-                self.draw_editor(ui, viewport, key_modifiers);
-            });
+                self.draw_editor(ui, viewport, key_modifiers)
+            })
+            .inner
+    }
+
+    pub fn doc_hash(&self) -> u64 {
+        self.doc_hash
     }
 
     // ========================================================================
@@ -168,7 +180,7 @@ impl CodeEditor {
         ui: &mut egui::Ui,
         viewport: egui::Rect,
         key_modifiers: &KeyModifiers,
-    ) {
+    ) -> bool {
         let scroll_offset = viewport.min.y;
         self.handle_scroll_change(scroll_offset);
 
@@ -233,6 +245,8 @@ impl CodeEditor {
             self.handle_keyboard_input(ui, key_modifiers, time);
             self.handle_cursor_scroll(ui, rect, line_height);
         }
+
+        response.has_focus()
     }
 
     // ========================================================================
@@ -1017,9 +1031,16 @@ impl CodeEditor {
     // Edit Application & Undo/Redo
     // ========================================================================
 
+    fn update_doc_hash(&mut self) {
+        let mut hasher = DefaultHasher::new();
+        self.doc.hash(&mut hasher);
+        self.doc_hash = hasher.finish();
+    }
+
     fn apply_edit(&mut self, edit: Edit) {
         self.doc.remove(edit.range.clone());
         self.doc.insert(edit.range.start, &edit.inserted);
+        self.update_doc_hash();
 
         self.update_cursor(edit.cursor_after);
         self.selection = edit.selection_after.clone();
@@ -1125,6 +1146,7 @@ impl CodeEditor {
 
         self.doc.remove(revert_range.clone());
         self.doc.insert(revert_range.start, &edit.removed);
+        self.update_doc_hash();
 
         self.update_cursor(edit.cursor_before);
         self.selection = edit.selection_before.clone();
@@ -1141,6 +1163,7 @@ impl CodeEditor {
 
         self.doc.remove(edit.range.clone());
         self.doc.insert(edit.range.start, &edit.inserted);
+        self.update_doc_hash();
 
         self.update_cursor(edit.cursor_after);
         self.selection = edit.selection_after.clone();
@@ -1159,6 +1182,7 @@ impl CodeEditor {
         let formatted = self.syntax.formatter.format(source);
 
         self.doc = Rope::from_str(&formatted);
+        self.update_doc_hash();
 
         // Restore cursor position as best we can
         let new_line = cursor_line.min(self.doc.len_lines() - 1);

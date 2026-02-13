@@ -1,3 +1,4 @@
+use egui_tiles::TileId;
 use uuid::Uuid;
 
 use crate::{
@@ -65,6 +66,7 @@ pub struct TabViewer<'a> {
     project: &'a mut Project,
     drag_payload: &'a mut Option<EditorDragPayload>,
     file_to_open: &'a mut Option<Uuid>,
+    last_focussed_code_editor: &'a mut Option<TileId>,
 }
 
 impl<'a> TabViewer<'a> {
@@ -73,12 +75,14 @@ impl<'a> TabViewer<'a> {
         project: &'a mut Project,
         drag_payload: &'a mut Option<EditorDragPayload>,
         file_to_open: &'a mut Option<Uuid>,
+        last_focussed_code_editor: &'a mut Option<TileId>,
     ) -> Self {
         Self {
             key_modifiers,
             project,
             drag_payload,
             file_to_open,
+            last_focussed_code_editor,
         }
     }
 }
@@ -91,7 +95,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
     fn pane_ui(
         &mut self,
         ui: &mut egui::Ui,
-        _tile_id: egui_tiles::TileId,
+        tile_id: egui_tiles::TileId,
         tab: &mut Tab,
     ) -> egui_tiles::UiResponse {
         match tab {
@@ -109,6 +113,10 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
             }
             Tab::CodeEditor(tab) => {
                 tab.ui(ui, self.project, self.key_modifiers);
+
+                if tab.has_focus() {
+                    *self.last_focussed_code_editor = Some(tile_id);
+                }
             }
         }
 

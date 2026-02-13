@@ -34,6 +34,7 @@ pub enum EditorDragPayload {
 struct Tabs {
     tree: Tree<Tab>,
     file_explorer_id: TileId,
+    last_focussed_code_editor: Option<TileId>,
 }
 
 impl Tabs {
@@ -100,6 +101,7 @@ impl Tabs {
         Self {
             tree,
             file_explorer_id,
+            last_focussed_code_editor: None,
         }
     }
 
@@ -110,6 +112,26 @@ impl Tabs {
                     if let Some(egui_tiles::Tile::Pane(tab)) = self.tree.tiles.get(child_id) {
                         if target_tab.variant_eq(tab) {
                             return Some((*tile_id, child_id));
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn get_focussed_code_editor(&mut self) -> Option<&mut CodeEditorTab> {
+        for (_tile_id, tile) in self.tree.tiles.iter() {
+            if let egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs)) = tile {
+                for &child_id in &tabs.children {
+                    if let Some(egui_tiles::Tile::Pane(Tab::CodeEditor(code_editor))) =
+                        self.tree.tiles.get_mut(child_id)
+                    {
+                        if tabs.active == Some(child_id)
+                            && self.last_focussed_code_editor == Some(child_id)
+                        {
+                            return Some(code_editor);
                         }
                     }
                 }
@@ -249,6 +271,29 @@ impl Editor {
                                 ui.menu_button("New File", |_| {});
                             });
                         }
+
+                        let mut allow_save_file = false;
+                        if let (Some(tabs), Some(project)) = (&mut self.tabs, project.as_mut()) {
+                            if let Some(code_editor) = tabs.get_focussed_code_editor() {
+                                allow_save_file = true;
+                                if ui
+                                    .button("Save File")
+                                    .on_hover_text("Save the currently focussed code file")
+                                    .clicked()
+                                {
+                                    ui.close();
+
+                                    code_editor.save_to_project(project);
+                                    // TODO: save
+                                }
+                            }
+                        }
+                        if !allow_save_file {
+                            ui.add_enabled_ui(false, |ui| {
+                                ui.button("Save File")
+                                    .on_hover_text("Save the currently focussed code file");
+                            });
+                        }
                     });
                 });
             });
@@ -293,18 +338,21 @@ impl Editor {
             )
             .show(egui_ctx, |ui| {
                 if let Some(project) = project {
-                    if let Some(tree) = self.tabs.as_mut().map(|tabs| &mut tabs.tree) {
+                    if let Some(tabs) = &mut self.tabs {
                         let mut file_to_open = None;
 
-                        tree.ui(
+                        tabs.tree.ui(
                             &mut TabViewer::new(
                                 key_modifiers,
                                 project,
                                 &mut self.drag_payload,
                                 &mut file_to_open,
+                                &mut tabs.last_focussed_code_editor,
                             ),
                             ui,
                         );
+
+                        let tree = &mut tabs.tree;
 
                         if let Some(file_to_open) = file_to_open {
                             if project.code_files.get_file(file_to_open).is_some() {
