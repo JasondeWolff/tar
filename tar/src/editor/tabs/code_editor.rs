@@ -83,9 +83,11 @@ impl CodeEditorTab {
             .code_files
             .set_source(self.id, self.code_editor.doc.to_string())
         {
+            log::warn!("Failed to save file internally: {e}");
+        } else if let Err(e) = project.code_files.save_file(self.id) {
             log::warn!("Failed to save file: {e}");
+        } else {
+            self.saved_source_code_hash = self.code_editor.doc_hash();
         }
-
-        self.saved_source_code_hash = self.code_editor.doc_hash();
     }
 }

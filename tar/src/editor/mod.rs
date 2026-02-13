@@ -122,19 +122,33 @@ impl Tabs {
     }
 
     pub fn get_focussed_code_editor(&mut self) -> Option<&mut CodeEditorTab> {
+        let mut target_id = None;
+
         for (_tile_id, tile) in self.tree.tiles.iter() {
             if let egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs)) = tile {
                 for &child_id in &tabs.children {
-                    if let Some(egui_tiles::Tile::Pane(Tab::CodeEditor(code_editor))) =
-                        self.tree.tiles.get_mut(child_id)
+                    if let Some(egui_tiles::Tile::Pane(Tab::CodeEditor(_))) =
+                        self.tree.tiles.get(child_id)
                     {
                         if tabs.active == Some(child_id)
                             && self.last_focussed_code_editor == Some(child_id)
                         {
-                            return Some(code_editor);
+                            target_id = Some(child_id);
+                            break;
                         }
                     }
                 }
+                if target_id.is_some() {
+                    break;
+                }
+            }
+        }
+
+        if let Some(id) = target_id {
+            if let Some(egui_tiles::Tile::Pane(Tab::CodeEditor(code_editor))) =
+                self.tree.tiles.get_mut(id)
+            {
+                return Some(code_editor);
             }
         }
 
