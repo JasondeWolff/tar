@@ -6,7 +6,7 @@ use std::borrow::Cow;
 
 use crate::{
     editor::{node_graph::*, EditorDragPayload},
-    project::Project,
+    project::{CodeFileType, Project},
     render_graph::{
         RgDataType, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType, ScreenTexResolution,
         Tex2D, Tex2DArray, Tex3D, Tex3DArray,
@@ -497,7 +497,7 @@ impl WidgetValueTrait for RgValueType {
 
                     let drop_target = ui.group(|ui| {
                         let code_file_name = if let Some(value) = value {
-                            if let Some(name) = code_file_names.get(value) {
+                            if let Some((_ty, name)) = code_file_names.get(value) {
                                 name.file_name()
                                     .map(|s| s.to_string_lossy().to_string())
                                     .unwrap_or_default()
@@ -518,24 +518,28 @@ impl WidgetValueTrait for RgValueType {
                     };
 
                     if let Some(EditorDragPayload::CodeFile(id, ..)) = drag_payload {
-                        ui.painter().rect_stroke(
-                            drop_target.response.rect,
-                            0.0,
-                            egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE),
-                            egui::StrokeKind::Middle,
-                        );
+                        if let Some((ty, _)) = code_file_names.get(id) {
+                            if *ty == CodeFileType::Fragment {
+                                ui.painter().rect_stroke(
+                                    drop_target.response.rect,
+                                    0.0,
+                                    egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE),
+                                    egui::StrokeKind::Middle,
+                                );
 
-                        if is_hovered {
-                            ui.painter().rect_stroke(
-                                drop_target.response.rect,
-                                0.0,
-                                egui::Stroke::new(1.0, egui::Color32::DARK_BLUE),
-                                egui::StrokeKind::Middle,
-                            );
+                                if is_hovered {
+                                    ui.painter().rect_stroke(
+                                        drop_target.response.rect,
+                                        0.0,
+                                        egui::Stroke::new(1.0, egui::Color32::DARK_BLUE),
+                                        egui::StrokeKind::Middle,
+                                    );
 
-                            if ui.input(|i| i.pointer.primary_released()) {
-                                *value = Some(*id);
-                                *drag_payload = None;
+                                    if ui.input(|i| i.pointer.primary_released()) {
+                                        *value = Some(*id);
+                                        *drag_payload = None;
+                                    }
+                                }
                             }
                         }
                     }
@@ -641,11 +645,12 @@ impl RenderGraphTab {
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
-        let code_file_names = project
-            .code_files
-            .files_iter()
-            .map(|(id, file)| (*id, file.relative_path().clone()))
-            .collect();
+        let code_file_names: std::collections::HashMap<Uuid, (CodeFileType, std::path::PathBuf)> =
+            project
+                .code_files
+                .files_iter()
+                .map(|(id, file)| (*id, (file.ty(), file.relative_path().clone())))
+                .collect();
 
         project
             .render_graph_mut()

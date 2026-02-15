@@ -14,7 +14,7 @@ use crate::{
         tabs::render_graph::{AllMyNodeTemplates, MyResponse, RgEditorState},
         EditorDragPayload,
     },
-    project::Project,
+    project::{CodeFileType, Project},
     wgpu_util::BasicColorTextureFormat,
 };
 
@@ -167,7 +167,7 @@ pub struct RgNodeData(pub RgNodeTemplate);
 
 #[derive(Default)]
 pub struct RgEditorGraphState {
-    pub code_file_names: HashMap<Uuid, PathBuf>,
+    pub code_file_names: HashMap<Uuid, (CodeFileType, PathBuf)>,
     pub drag_payload: Option<EditorDragPayload>,
 }
 
@@ -273,7 +273,7 @@ impl RenderGraph {
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
-        code_file_names: HashMap<Uuid, PathBuf>,
+        code_file_names: HashMap<Uuid, (CodeFileType, PathBuf)>,
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
         self.graph_state.editor = Some(RgEditorGraphState {
