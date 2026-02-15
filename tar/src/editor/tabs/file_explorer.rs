@@ -615,23 +615,26 @@ impl FileExplorerTab {
         }
 
         if let Some(pos) = response.interact_pointer_pos() {
-            let row_idx = ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
-            let item = items.get(row_idx).map(|(item, _)| item);
+            if response.rect.contains(pos) {
+                let row_idx =
+                    ((pos.y - rect.min.y - Self::TOP_PADDING) / row_height).floor() as usize;
+                let item = items.get(row_idx).map(|(item, _)| item);
 
-            if let Some(item) = item {
-                if response.clicked() {
-                    self.handle_item_click(item, file_to_open);
-                } else if response.drag_started() {
-                    self.handle_drag_start(item, drag_payload);
+                if let Some(item) = item {
+                    if response.clicked() {
+                        self.handle_item_click(item, file_to_open);
+                    } else if response.drag_started() {
+                        self.handle_drag_start(item, drag_payload);
+                    }
                 }
-            }
 
-            if response.clicked() && item.is_none() {
-                self.selected = None;
-            }
+                if response.clicked() && item.is_none() {
+                    self.selected = None;
+                }
 
-            if ui.input(|i| i.pointer.primary_released()) {
-                self.handle_drop(item, project, drag_payload);
+                if ui.input(|i| i.pointer.primary_released()) {
+                    self.handle_drop(item, project, drag_payload);
+                }
             }
         }
 

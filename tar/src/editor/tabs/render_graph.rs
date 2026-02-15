@@ -410,16 +410,16 @@ impl NodeTemplateIter for AllMyNodeTemplates {
     }
 }
 
-impl<'a> WidgetValueTrait for RgValueType {
+impl WidgetValueTrait for RgValueType {
     type Response = MyResponse;
-    type UserState = RgGraphState<'a>;
+    type UserState = RgGraphState;
     type NodeData = RgNodeData;
     fn value_widget(
         &mut self,
         param_name: &str,
         _node_id: NodeId,
         ui: &mut egui::Ui,
-        _user_state: &mut RgGraphState,
+        user_state: &mut RgGraphState,
         _node_data: &RgNodeData,
     ) -> Vec<MyResponse> {
         // This trait is used to tell the library which UI to display for the
@@ -488,12 +488,57 @@ impl<'a> WidgetValueTrait for RgValueType {
                 });
             }
             Self::CodeFile(value) => {
+                let editor = user_state.editor.as_mut().unwrap();
+                let code_file_names = &editor.code_file_names;
+                let drag_payload = &mut editor.drag_payload;
+
                 ui.horizontal(|ui| {
                     ui.label(param_name);
 
-                    // TODO: get code file name for project -> code files, if None, just none
-                    // if some file is being dragged, highlight border of this field
-                    // if file is dropped on here, set value
+                    let drop_target = ui.group(|ui| {
+                        let code_file_name = if let Some(value) = value {
+                            if let Some(name) = code_file_names.get(value) {
+                                name.file_name()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_default()
+                            } else {
+                                "Missing".to_string()
+                            }
+                        } else {
+                            "None".to_string()
+                        };
+
+                        ui.label(code_file_name)
+                    });
+
+                    let pointer_pos = ui.ctx().pointer_hover_pos();
+                    let is_hovered = match pointer_pos {
+                        Some(pos) => drop_target.response.rect.contains(pos),
+                        None => false,
+                    };
+
+                    if let Some(EditorDragPayload::CodeFile(id, ..)) = drag_payload {
+                        ui.painter().rect_stroke(
+                            drop_target.response.rect,
+                            0.0,
+                            egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE),
+                            egui::StrokeKind::Middle,
+                        );
+
+                        if is_hovered {
+                            ui.painter().rect_stroke(
+                                drop_target.response.rect,
+                                0.0,
+                                egui::Stroke::new(1.0, egui::Color32::DARK_BLUE),
+                                egui::StrokeKind::Middle,
+                            );
+
+                            if ui.input(|i| i.pointer.primary_released()) {
+                                *value = Some(*id);
+                                *drag_payload = None;
+                            }
+                        }
+                    }
                 });
             }
             Self::ScreenTex(_)
@@ -596,6 +641,14 @@ impl RenderGraphTab {
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
-        project.render_graph_mut().ui(ui, drag_payload);
+        let code_file_names = project
+            .code_files
+            .files_iter()
+            .map(|(id, file)| (*id, file.relative_path().clone()))
+            .collect();
+
+        project
+            .render_graph_mut()
+            .ui(ui, code_file_names, drag_payload);
     }
 }

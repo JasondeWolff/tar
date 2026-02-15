@@ -165,35 +165,36 @@ pub enum RgNodeTemplate {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct RgNodeData(pub RgNodeTemplate);
 
-pub struct RgEditorGraphState<'a> {
-    pub project: &'a Project,
-    pub drag_payload: &'a mut Option<EditorDragPayload>,
+#[derive(Default)]
+pub struct RgEditorGraphState {
+    pub code_file_names: HashMap<Uuid, PathBuf>,
+    pub drag_payload: Option<EditorDragPayload>,
 }
 
 /// The graph 'global' state. This state struct is passed around to the node and
 /// parameter drawing callbacks. The contents of this struct are entirely up to
 /// the user. For this example, we use it to keep track of the 'active' node.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
-pub struct RgGraphState<'a> {
+pub struct RgGraphState {
     pub inspect_node: Option<NodeId>,
 
     #[serde(skip)]
-    pub editor: Option<RgEditorGraphState<'a>>,
+    pub editor: Option<RgEditorGraphState>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct RenderGraph<'a> {
+pub struct RenderGraph {
     node_graph: RgEditorState,
-    graph_state: RgGraphState<'a>,
+    graph_state: RgGraphState,
 }
 
-impl<'a> Default for RenderGraph<'a> {
+impl Default for RenderGraph {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> RenderGraph<'a> {
+impl RenderGraph {
     pub fn new() -> Self {
         let mut node_graph = RgEditorState::default();
         let mut graph_state = RgGraphState::default();
@@ -272,12 +273,12 @@ impl<'a> RenderGraph<'a> {
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
-        project: &Project,
+        code_file_names: HashMap<Uuid, PathBuf>,
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
         self.graph_state.editor = Some(RgEditorGraphState {
-            project,
-            drag_payload,
+            code_file_names,
+            drag_payload: std::mem::take(drag_payload),
         });
 
         let graph_response = self.node_graph.draw_graph_editor(
@@ -287,7 +288,9 @@ impl<'a> RenderGraph<'a> {
             Vec::default(),
         );
 
-        self.graph_state.editor = None;
+        if let Some(editor) = self.graph_state.editor.take() {
+            *drag_payload = editor.drag_payload;
+        }
 
         for node_response in graph_response.node_responses {
             if let NodeResponse::User(user_event) = node_response {
