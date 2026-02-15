@@ -26,6 +26,7 @@ pub mod tabs;
 
 pub enum EditorDragPayloadType {}
 
+#[derive(Clone)]
 pub enum EditorDragPayload {
     CodeFile(Uuid, PathBuf),
     Folder(PathBuf),

@@ -5,7 +5,7 @@ use egui::{self};
 use std::borrow::Cow;
 
 use crate::{
-    editor::node_graph::*,
+    editor::{node_graph::*, EditorDragPayload},
     project::Project,
     render_graph::{
         RgDataType, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType, ScreenTexResolution,
@@ -109,6 +109,7 @@ impl DataTypeTrait<RgGraphState> for RgDataType {
             Self::Tex3D => egui::Color32::from_rgb(211, 182, 38),
             Self::HistoryTex3D => egui::Color32::from_rgb(182, 38, 211),
             Self::Tex3DArray => egui::Color32::from_rgb(38, 211, 182),
+            Self::CodeFile => egui::Color32::from_rgb(38, 211, 182),
         }
     }
 
@@ -127,6 +128,7 @@ impl DataTypeTrait<RgGraphState> for RgDataType {
             Self::Tex3D => Cow::Borrowed("3D texture"),
             Self::HistoryTex3D => Cow::Borrowed("history 3D texture"),
             Self::Tex3DArray => Cow::Borrowed("3D texture array"),
+            Self::CodeFile => Cow::Borrowed("code file"),
         }
     }
 }
@@ -304,6 +306,16 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
+        let input_code_file = |graph: &mut RgGraph, name: &str| {
+            graph.add_input_param(
+                node_id,
+                name.to_string(),
+                RgDataType::CodeFile,
+                RgValueType::CodeFile(None),
+                InputParamKind::ConstantOnly,
+                true,
+            );
+        };
 
         let output_tex_2d = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex2D);
@@ -378,6 +390,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 output_tex_3d_array(graph, "tex");
             }
             RgNodeTemplate::GraphicsPass => {
+                input_code_file(graph, "code");
                 input_tex_2d(graph, "in");
                 output_tex_2d(graph, "out");
             }
@@ -397,9 +410,9 @@ impl NodeTemplateIter for AllMyNodeTemplates {
     }
 }
 
-impl WidgetValueTrait for RgValueType {
+impl<'a> WidgetValueTrait for RgValueType {
     type Response = MyResponse;
-    type UserState = RgGraphState;
+    type UserState = RgGraphState<'a>;
     type NodeData = RgNodeData;
     fn value_widget(
         &mut self,
@@ -472,6 +485,15 @@ impl WidgetValueTrait for RgValueType {
                                 ui.selectable_value(value, variant, variant.to_string());
                             }
                         });
+                });
+            }
+            Self::CodeFile(value) => {
+                ui.horizontal(|ui| {
+                    ui.label(param_name);
+
+                    // TODO: get code file name for project -> code files, if None, just none
+                    // if some file is being dragged, highlight border of this field
+                    // if file is dropped on here, set value
                 });
             }
             Self::ScreenTex(_)
@@ -568,7 +590,12 @@ impl RenderGraphTab {
         self.id
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, project: &mut Project) {
-        project.render_graph_mut().ui(ui);
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        project: &mut Project,
+        drag_payload: &mut Option<EditorDragPayload>,
+    ) {
+        project.render_graph_mut().ui(ui, drag_payload);
     }
 }

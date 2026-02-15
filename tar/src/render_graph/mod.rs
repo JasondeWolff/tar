@@ -12,7 +12,9 @@ use crate::{
     editor::{
         node_graph::{self, Graph, NodeId, NodeResponse, NodeTemplateTrait},
         tabs::render_graph::{AllMyNodeTemplates, MyResponse, RgEditorState},
+        EditorDragPayload,
     },
+    project::Project,
     wgpu_util::BasicColorTextureFormat,
 };
 
@@ -114,6 +116,8 @@ pub enum RgDataType {
     Tex3D,
     HistoryTex3D,
     Tex3DArray,
+
+    CodeFile,
 }
 
 #[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -132,6 +136,8 @@ pub enum RgValueType {
     Tex2DArray(Tex2DArray),
     Tex3D(Tex3D),
     Tex3DArray(Tex3DArray),
+
+    CodeFile(Option<Uuid>),
 }
 
 impl Default for RgValueType {
@@ -159,27 +165,35 @@ pub enum RgNodeTemplate {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct RgNodeData(pub RgNodeTemplate);
 
+pub struct RgEditorGraphState<'a> {
+    pub project: &'a Project,
+    pub drag_payload: &'a mut Option<EditorDragPayload>,
+}
+
 /// The graph 'global' state. This state struct is passed around to the node and
 /// parameter drawing callbacks. The contents of this struct are entirely up to
 /// the user. For this example, we use it to keep track of the 'active' node.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
-pub struct RgGraphState {
+pub struct RgGraphState<'a> {
     pub inspect_node: Option<NodeId>,
+
+    #[serde(skip)]
+    pub editor: Option<RgEditorGraphState<'a>>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct RenderGraph {
+pub struct RenderGraph<'a> {
     node_graph: RgEditorState,
-    graph_state: RgGraphState,
+    graph_state: RgGraphState<'a>,
 }
 
-impl Default for RenderGraph {
+impl<'a> Default for RenderGraph<'a> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RenderGraph {
+impl<'a> RenderGraph<'a> {
     pub fn new() -> Self {
         let mut node_graph = RgEditorState::default();
         let mut graph_state = RgGraphState::default();
@@ -255,13 +269,25 @@ impl RenderGraph {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        project: &Project,
+        drag_payload: &mut Option<EditorDragPayload>,
+    ) {
+        self.graph_state.editor = Some(RgEditorGraphState {
+            project,
+            drag_payload,
+        });
+
         let graph_response = self.node_graph.draw_graph_editor(
             ui,
             AllMyNodeTemplates,
             &mut self.graph_state,
             Vec::default(),
         );
+
+        self.graph_state.editor = None;
 
         for node_response in graph_response.node_responses {
             if let NodeResponse::User(user_event) = node_response {

@@ -109,7 +109,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui, self.project, self.drag_payload, self.file_to_open);
             }
             Tab::RenderGraph(tab) => {
-                tab.ui(ui, self.project);
+                tab.ui(ui, self.project, self.drag_payload);
             }
             Tab::CodeEditor(tab) => {
                 tab.ui(ui, self.project, self.key_modifiers);
