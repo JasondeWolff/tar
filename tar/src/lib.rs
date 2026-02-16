@@ -3,9 +3,11 @@ use std::sync::Arc;
 use crate::{
     editor::Editor,
     egui_util::KeyModifiers,
-    project::Project,
+    project::{CodeFileType, Project},
+    render_graph::executor::RenderGraphExecutor,
     runtime::{Runtime, Static},
     time::FpsCounter,
+    wgpu_util::PipelineDatabase,
 };
 
 pub mod editor;
@@ -32,7 +34,11 @@ impl App {
     }
 }
 
-pub struct RenderPipeline {}
+pub struct RenderPipeline {
+    executor: RenderGraphExecutor,
+    pipeline_database: PipelineDatabase,
+    surface_config: wgpu::SurfaceConfiguration,
+}
 
 impl runtime::RenderPipeline<App> for RenderPipeline {
     fn required_limits() -> wgpu::Limits {
@@ -43,29 +49,34 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
     }
 
     fn init(
-        _config: wgpu::SurfaceConfiguration,
+        config: wgpu::SurfaceConfiguration,
         _adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         _queue: &wgpu::Queue,
         _window: Arc<winit::window::Window>,
     ) -> Self {
-        Self {}
+        Self {
+            executor: RenderGraphExecutor::new(),
+            pipeline_database: PipelineDatabase::new(),
+            surface_config: config,
+        }
     }
 
     fn resize(
         &mut self,
-        _config: wgpu::SurfaceConfiguration,
+        config: wgpu::SurfaceConfiguration,
         _device: &wgpu::Device,
         _queue: &wgpu::Queue,
     ) {
+        self.surface_config = config;
     }
 
     fn render(
         &mut self,
-        _target_view: &wgpu::TextureView,
-        _target_format: wgpu::TextureFormat,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        target_view: &wgpu::TextureView,
+        target_format: wgpu::TextureFormat,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
         key_modifiers: &KeyModifiers,
         app: &mut App,
@@ -79,6 +90,48 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
         }
 
         app.editor.ui(egui_ctx, &mut app.project, key_modifiers);
+
+        if let Some(project) = &mut app.project {
+            // Sync render graph shaders and dynamic inputs
+            let code_sources: Vec<(uuid::Uuid, String)> = project
+                .code_files
+                .files_iter()
+                .filter(|(_, f)| f.ty() == CodeFileType::Fragment)
+                .map(|(id, f)| (*id, f.source.clone()))
+                .collect();
+            let rg = project.render_graph_mut();
+            rg.sync_shaders(&code_sources, device);
+            rg.sync_dynamic_inputs();
+
+            // Compile and execute the render graph
+            let screen_size = [self.surface_config.width, self.surface_config.height];
+            match render_graph::compiled::compile(
+                rg.graph(),
+                &rg.graph_state().shader_cache,
+                screen_size,
+            ) {
+                Ok(compiled) => {
+                    self.executor.allocate(&compiled, device);
+                    self.executor.build_pipelines(
+                        &compiled,
+                        &rg.graph_state().shader_cache,
+                        device,
+                    );
+                    self.executor.execute(
+                        &compiled,
+                        &rg.graph_state().shader_cache,
+                        device,
+                        queue,
+                        target_view,
+                        target_format,
+                        &mut self.pipeline_database,
+                    );
+                }
+                Err(e) => {
+                    log::warn!("Render graph compile error: {}", e);
+                }
+            }
+        }
     }
 }
 

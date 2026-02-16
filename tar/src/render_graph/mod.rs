@@ -1,24 +1,22 @@
-use std::{collections::HashMap, default, num::NonZeroU32, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use strum::{EnumIter, EnumString};
+use strum::EnumIter;
 use uuid::Uuid;
-use wgpu::naga::{
-    front::wgsl,
-    valid::{Capabilities, ValidationFlags, Validator},
-};
 
 use crate::{
     editor::{
-        node_graph::{self, Graph, NodeId, NodeResponse, NodeTemplateTrait},
+        node_graph::{self, Graph, InputParamKind, NodeId, NodeResponse, NodeTemplateTrait},
         tabs::render_graph::{AllMyNodeTemplates, MyResponse, RgEditorState},
         EditorDragPayload,
     },
-    project::{CodeFileType, Project},
+    project::CodeFileType,
     render_graph::shader::Shader,
     wgpu_util::BasicColorTextureFormat,
 };
 
+pub mod compiled;
+pub mod executor;
 pub mod shader;
 
 #[derive(
@@ -168,6 +166,8 @@ pub enum RgNodeTemplate {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct RgNodeData(pub RgNodeTemplate);
 
+pub type RgGraph = Graph<RgNodeData, RgDataType, RgValueType>;
+
 #[derive(Default)]
 pub struct RgEditorGraphState {
     pub code_file_names: HashMap<Uuid, (CodeFileType, PathBuf)>,
@@ -222,7 +222,7 @@ impl RenderGraph {
         const OFFSET: egui::Vec2 = egui::Vec2::new(100.0, 100.0);
         const SPACING: f32 = 350.0;
 
-        let screen_tex_node = add_node(
+        let _screen_tex_node = add_node(
             RgNodeTemplate::ScreenTex,
             egui::Pos2::new(SPACING * 0.0, 0.0) + OFFSET,
         );
@@ -235,23 +235,9 @@ impl RenderGraph {
             egui::Pos2::new(SPACING * 2.0, 0.0) + OFFSET,
         );
 
-        node_graph.graph.add_connection(
-            node_graph
-                .graph
-                .nodes
-                .get(screen_tex_node)
-                .unwrap()
-                .get_output("tex")
-                .unwrap(),
-            node_graph
-                .graph
-                .nodes
-                .get(graphics_pass_node)
-                .unwrap()
-                .get_input("in")
-                .unwrap(),
-            0,
-        );
+        // Note: ScreenTex -> GraphicsPass connection is not created here because
+        // GraphicsPass dynamic inputs are populated by sync_dynamic_inputs() based
+        // on the assigned shader's bindings.
 
         node_graph.graph.add_connection(
             node_graph
@@ -309,17 +295,130 @@ impl RenderGraph {
         }
     }
 
-    pub fn compile(&mut self) -> Result<(), String> {
-        // let mut frontend = wgsl::Frontend::new();
+    /// Synchronize the shader cache with the current code file sources.
+    /// Compiles new/changed fragment shaders and removes deleted ones.
+    pub fn sync_shaders(
+        &mut self,
+        code_sources: &[(Uuid, String)],
+        device: &wgpu::Device,
+    ) {
+        let valid_ids: std::collections::HashSet<Uuid> =
+            code_sources.iter().map(|(id, _)| *id).collect();
 
-        // let module = frontend
-        //     .parse(&self.source)
-        //     .map_err(|e| e.emit_to_string(&self.source))?;
+        // Remove entries for deleted files
+        self.graph_state
+            .shader_cache
+            .retain(|id, _| valid_ids.contains(id));
 
-        // let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
+        // Add or update shaders
+        for (id, source) in code_sources {
+            let needs_update = match self.graph_state.shader_cache.get(id) {
+                Some(shader) => shader.get_fragment_source() != Some(source),
+                None => true,
+            };
+            if needs_update {
+                let shader = Shader::new_fragment(source.clone(), device);
+                self.graph_state.shader_cache.insert(*id, shader);
+            }
+        }
+    }
 
-        // validator.validate(&module).map_err(|e| format!("{e:?}"))?;
+    /// For each GraphicsPass node, sync its dynamic input ports to match the
+    /// shader's declared bindings. Static ports ("code") are left untouched.
+    pub fn sync_dynamic_inputs(&mut self) {
+        let graph = &mut self.node_graph.graph;
+        let shader_cache = &self.graph_state.shader_cache;
 
-        Ok(())
+        // Collect all GraphicsPass node ids
+        let graphics_pass_nodes: Vec<NodeId> = graph
+            .iter_nodes()
+            .filter(|&nid| matches!(graph[nid].user_data.0, RgNodeTemplate::GraphicsPass))
+            .collect();
+
+        for node_id in graphics_pass_nodes {
+            // Read the code file uuid from the "code" input
+            let code_file_id = graph[node_id]
+                .get_input("code")
+                .ok()
+                .and_then(|input_id| {
+                    if let RgValueType::CodeFile(Some(id)) = &graph.get_input(input_id).value {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                });
+
+            // Get expected bindings from shader cache
+            let bindings = code_file_id
+                .and_then(|id| shader_cache.get(&id))
+                .map(|s| s.get_bindings().to_vec())
+                .unwrap_or_default();
+
+            // Build desired input ports from bindings (skip Samplers - auto-injected)
+            let desired: Vec<(String, RgDataType)> = bindings
+                .iter()
+                .filter_map(|b| {
+                    let dt = match b.resource_type.as_str() {
+                        "Texture2D" => RgDataType::Tex2D,
+                        "Texture3D" => RgDataType::Tex3D,
+                        "TextureCube" => return None, // not yet supported as connectable
+                        "Sampler" => return None,
+                        // Buffer types not yet supported as connectable nodes
+                        _ => return None,
+                    };
+                    Some((b.name.clone(), dt))
+                })
+                .collect();
+
+            // Names of static inputs that should never be removed
+            let static_names: &[&str] = &["code"];
+
+            // Current dynamic inputs
+            let current_dynamic: Vec<(String, node_graph::InputId)> = graph[node_id]
+                .inputs
+                .iter()
+                .filter(|(name, _)| !static_names.contains(&name.as_str()))
+                .cloned()
+                .collect();
+
+            // Remove ports not in desired set
+            for (name, input_id) in &current_dynamic {
+                if !desired.iter().any(|(n, _)| n == name) {
+                    graph.remove_input_param(*input_id);
+                }
+            }
+
+            // Add ports in desired set not currently present
+            for (name, data_type) in &desired {
+                let exists = graph[node_id].inputs.iter().any(|(n, _)| n == name);
+                if !exists {
+                    let (dt, vt) = match data_type {
+                        RgDataType::Tex2D => {
+                            (RgDataType::Tex2D, RgValueType::Tex2D(Tex2D::default()))
+                        }
+                        RgDataType::Tex3D => {
+                            (RgDataType::Tex3D, RgValueType::Tex3D(Tex3D::default()))
+                        }
+                        _ => continue,
+                    };
+                    graph.add_input_param(
+                        node_id,
+                        name.clone(),
+                        dt,
+                        vt,
+                        InputParamKind::ConnectionOnly,
+                        true,
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn graph(&self) -> &RgGraph {
+        &self.node_graph.graph
+    }
+
+    pub fn graph_state(&self) -> &RgGraphState {
+        &self.graph_state
     }
 }

@@ -3,6 +3,25 @@ use wgpu::naga::{
     valid::{Capabilities, ValidationFlags, Validator},
 };
 
+const FULLSCREEN_VERTEX_PREAMBLE: &str = r#"
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coord: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
+    var result: VertexOutput;
+    let x = i32(vertex_index) / 2;
+    let y = i32(vertex_index) & 1;
+    let tc = vec2<f32>(f32(x) * 2.0, f32(y) * 2.0);
+    result.position = vec4<f32>(tc.x * 2.0 - 1.0, 1.0 - tc.y * 2.0, 0.0, 1.0);
+    result.tex_coord = tc;
+    return result;
+}
+"#;
+
+#[derive(Clone)]
 pub struct ShaderBinding {
     pub set: u32,
     pub binding: u32,
@@ -12,6 +31,9 @@ pub struct ShaderBinding {
 
 pub struct Shader {
     src: String,
+    /// The original fragment-only source, before prepending the vertex preamble.
+    /// Only set when created via `new_fragment()`.
+    fragment_src: Option<String>,
     shader_module: Option<wgpu::ShaderModule>,
     bindings: Vec<ShaderBinding>,
     errors: Vec<String>,
@@ -22,6 +44,7 @@ impl Shader {
     pub fn new(src: String, device: &wgpu::Device) -> Self {
         let mut shader = Self {
             src,
+            fragment_src: None,
             shader_module: None,
             bindings: Vec::new(),
             errors: Vec::new(),
@@ -30,6 +53,33 @@ impl Shader {
 
         shader.compile(device);
         shader
+    }
+
+    /// Creates a shader for a fragment-only source by prepending the fullscreen
+    /// triangle vertex shader. The fragment entry point should be `main`.
+    pub fn new_fragment(fragment_src: String, device: &wgpu::Device) -> Self {
+        let full_src = format!("{}\n{}", FULLSCREEN_VERTEX_PREAMBLE, fragment_src);
+        let mut shader = Self {
+            src: full_src,
+            fragment_src: Some(fragment_src),
+            shader_module: None,
+            bindings: Vec::new(),
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        };
+
+        shader.compile(device);
+        shader
+    }
+
+    pub fn update_fragment_source(&mut self, fragment_src: String, device: &wgpu::Device) {
+        let full_src = format!("{}\n{}", FULLSCREEN_VERTEX_PREAMBLE, fragment_src);
+        self.fragment_src = Some(fragment_src);
+        self.update_source(full_src, device);
+    }
+
+    pub fn get_fragment_source(&self) -> Option<&str> {
+        self.fragment_src.as_deref()
     }
 
     fn compile(&mut self, device: &wgpu::Device) {

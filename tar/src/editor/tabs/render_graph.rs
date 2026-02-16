@@ -8,8 +8,8 @@ use crate::{
     editor::{node_graph::*, EditorDragPayload},
     project::{CodeFileType, Project},
     render_graph::{
-        RgDataType, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType, ScreenTexResolution,
-        Tex2D, Tex2DArray, Tex3D, Tex3DArray,
+        RgDataType, RgGraph, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType,
+        ScreenTexResolution, Tex2D, Tex2DArray, Tex3D, Tex3DArray,
     },
     wgpu_util::BasicColorTextureFormat,
 };
@@ -392,10 +392,8 @@ impl NodeTemplateTrait for RgNodeTemplate {
             }
             RgNodeTemplate::GraphicsPass => {
                 input_code_file(graph, "code");
-                input_tex_2d(graph, "in");
-
-                // TODO: list input paramaters based on evaluated shader code
-
+                // Dynamic texture inputs are added by sync_dynamic_inputs()
+                // based on the assigned shader's bindings
                 output_tex_2d(graph, "out");
             }
             RgNodeTemplate::DisplayOut => {
@@ -624,7 +622,6 @@ impl NodeDataTrait for RgNodeData {
     }
 }
 
-type RgGraph = Graph<RgNodeData, RgDataType, RgValueType>;
 pub type RgEditorState =
     GraphEditorState<RgNodeData, RgDataType, RgValueType, RgNodeTemplate, RgGraphState>;
 
