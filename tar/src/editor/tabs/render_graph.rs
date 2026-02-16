@@ -50,6 +50,7 @@ use crate::{
 //     /// Tries to downcast this value type to a vector
 //     pub fn try_to_vec2(self) -> anyhow::Result<egui::Vec2> {
 //         if let MyValueType::Vec2 { value } = self {
+
 //             Ok(value)
 //         } else {
 //             anyhow::bail!("Invalid cast from {:?} to vec2", self)
@@ -392,6 +393,9 @@ impl NodeTemplateTrait for RgNodeTemplate {
             RgNodeTemplate::GraphicsPass => {
                 input_code_file(graph, "code");
                 input_tex_2d(graph, "in");
+
+                // TODO: list input paramaters based on evaluated shader code
+
                 output_tex_2d(graph, "out");
             }
             RgNodeTemplate::DisplayOut => {

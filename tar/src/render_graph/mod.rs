@@ -15,8 +15,11 @@ use crate::{
         EditorDragPayload,
     },
     project::{CodeFileType, Project},
+    render_graph::shader::Shader,
     wgpu_util::BasicColorTextureFormat,
 };
+
+pub mod shader;
 
 #[derive(
     Default,
@@ -176,6 +179,10 @@ pub struct RgEditorGraphState {
 /// the user. For this example, we use it to keep track of the 'active' node.
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct RgGraphState {
+    #[serde(skip)]
+    pub shader_cache: HashMap<Uuid, Shader>,
+
+    // TODO: also editor-only related
     pub inspect_node: Option<NodeId>,
 
     #[serde(skip)]
