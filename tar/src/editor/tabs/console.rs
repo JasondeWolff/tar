@@ -1,29 +1,177 @@
+use egui_phosphor::regular as icons;
 use uuid::Uuid;
 
 use crate::project::Project;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Severity {
+    Error,
+    Warning,
+}
+
+struct ConsoleMessage {
+    severity: Severity,
+    text: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConsoleTab {
     id: Uuid,
+    show_errors: bool,
+    show_warnings: bool,
 }
 
 impl Default for ConsoleTab {
     fn default() -> Self {
-        Self { id: Uuid::new_v4() }
+        Self {
+            id: Uuid::new_v4(),
+            show_errors: true,
+            show_warnings: true,
+        }
     }
 }
 
 impl ConsoleTab {
+    const ROW_HEIGHT: f32 = 24.0;
+    const ICON_LEFT_PAD: f32 = 8.0;
+    const TEXT_LEFT_PAD: f32 = 8.0;
+
+    const ERROR_COLOR: egui::Color32 = egui::Color32::from_rgb(220, 50, 50);
+    const WARNING_COLOR: egui::Color32 = egui::Color32::from_rgb(230, 180, 30);
+
     pub fn id(&self) -> Uuid {
         self.id
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, project: &Project) {
-        let rg = project.render_graph();
+        let messages = self.collect_messages(project);
 
-        for (id, shader) in rg.shaders_iter() {
-            shader.get_errors();
-            shader.get_warnings();
+        ui.add_space(4.0);
+        self.draw_toolbar(ui, &messages);
+        ui.separator();
+
+        let filtered: Vec<&ConsoleMessage> = messages
+            .iter()
+            .filter(|m| match m.severity {
+                Severity::Error => self.show_errors,
+                Severity::Warning => self.show_warnings,
+            })
+            .collect();
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show_rows(ui, Self::ROW_HEIGHT, filtered.len(), |ui, row_range| {
+                for i in row_range {
+                    self.draw_message_row(ui, filtered[i]);
+                }
+            });
+    }
+
+    fn collect_messages(&self, project: &Project) -> Vec<ConsoleMessage> {
+        let rg = project.render_graph();
+        let mut messages = Vec::new();
+
+        for (_id, shader) in rg.shaders_iter() {
+            for err in shader.get_errors() {
+                messages.push(ConsoleMessage {
+                    severity: Severity::Error,
+                    text: err.clone(),
+                });
+            }
+            for warn in shader.get_warnings() {
+                messages.push(ConsoleMessage {
+                    severity: Severity::Warning,
+                    text: warn.clone(),
+                });
+            }
         }
+
+        messages
+    }
+
+    fn draw_toolbar(&mut self, ui: &mut egui::Ui, messages: &[ConsoleMessage]) {
+        let error_count = messages
+            .iter()
+            .filter(|m| m.severity == Severity::Error)
+            .count();
+        let warning_count = messages
+            .iter()
+            .filter(|m| m.severity == Severity::Warning)
+            .count();
+
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                //
+                ui.add_space(8.0);
+
+                // Error toggle
+                let error_label =
+                    egui::RichText::new(format!("{} {}", icons::X_CIRCLE, error_count));
+                let error_btn = if self.show_errors {
+                    egui::Button::new(error_label.color(egui::Color32::WHITE))
+                        .fill(Self::ERROR_COLOR)
+                } else {
+                    egui::Button::new(error_label)
+                };
+                if ui.add(error_btn).clicked() {
+                    self.show_errors = !self.show_errors;
+                }
+
+                // Warning toggle
+                let warning_label =
+                    egui::RichText::new(format!("{} {}", icons::WARNING, warning_count));
+                let warning_btn = if self.show_warnings {
+                    egui::Button::new(warning_label.color(egui::Color32::BLACK))
+                        .fill(Self::WARNING_COLOR)
+                } else {
+                    egui::Button::new(warning_label)
+                };
+                if ui.add(warning_btn).clicked() {
+                    self.show_warnings = !self.show_warnings;
+                }
+            });
+        });
+    }
+
+    fn draw_message_row(&self, ui: &mut egui::Ui, message: &ConsoleMessage) {
+        let row_rect = ui
+            .allocate_space(egui::vec2(ui.available_width(), Self::ROW_HEIGHT))
+            .1;
+
+        // Alternating row background
+        let row_bg = if (row_rect.min.y / Self::ROW_HEIGHT) as i32 % 2 == 0 {
+            ui.visuals().faint_bg_color
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(row_rect, 0.0, row_bg);
+
+        let (icon, icon_color) = match message.severity {
+            Severity::Error => (icons::X_CIRCLE, Self::ERROR_COLOR),
+            Severity::Warning => (icons::WARNING, Self::WARNING_COLOR),
+        };
+
+        // Draw icon
+        let icon_pos = egui::pos2(row_rect.min.x + Self::ICON_LEFT_PAD, row_rect.center().y);
+        ui.painter().text(
+            icon_pos,
+            egui::Align2::LEFT_CENTER,
+            icon,
+            egui::FontId::proportional(14.0),
+            icon_color,
+        );
+
+        // Draw message text
+        let text_pos = egui::pos2(
+            row_rect.min.x + Self::ICON_LEFT_PAD + 18.0 + Self::TEXT_LEFT_PAD,
+            row_rect.center().y,
+        );
+        ui.painter().text(
+            text_pos,
+            egui::Align2::LEFT_CENTER,
+            &message.text,
+            egui::FontId::proportional(13.0),
+            ui.visuals().text_color(),
+        );
     }
 }
