@@ -13,6 +13,7 @@ struct ConsoleMessage {
     severity: Severity,
     text: String,
     file: Uuid,
+    line: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,18 +74,20 @@ impl ConsoleTab {
         let mut messages = Vec::new();
 
         for (id, shader) in rg.shaders_iter() {
-            for err in shader.get_errors() {
+            for (err, line) in shader.get_errors() {
                 messages.push(ConsoleMessage {
                     severity: Severity::Error,
                     text: err.clone(),
                     file: *id,
+                    line: *line,
                 });
             }
-            for warn in shader.get_warnings() {
+            for (warn, line) in shader.get_warnings() {
                 messages.push(ConsoleMessage {
                     severity: Severity::Warning,
                     text: warn.clone(),
                     file: *id,
+                    line: *line,
                 });
             }
         }
@@ -178,7 +181,7 @@ impl ConsoleTab {
         );
 
         // Draw file name (bottom-left, smaller and dimmer — Unity style)
-        let file_name = project
+        let mut file_name = project
             .code_files
             .get_file(message.file)
             .map(|file| file.relative_path().file_name().unwrap_or_default())
@@ -186,6 +189,10 @@ impl ConsoleTab {
             .unwrap_or_default();
 
         if !file_name.is_empty() {
+            if let Some(line) = message.line {
+                file_name = format!("{file_name} ({line})");
+            }
+
             let file_pos = egui::pos2(text_left, row_rect.min.y + Self::ROW_HEIGHT * 0.75);
             ui.painter().text(
                 file_pos,

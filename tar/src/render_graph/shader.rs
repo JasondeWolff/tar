@@ -14,8 +14,8 @@ pub struct Shader {
     src: String,
     shader_module: Option<wgpu::ShaderModule>,
     bindings: Vec<ShaderBinding>,
-    errors: Vec<String>,
-    warnings: Vec<String>,
+    errors: Vec<(String, Option<u32>)>,
+    warnings: Vec<(String, Option<u32>)>,
 }
 
 impl Shader {
@@ -40,7 +40,12 @@ impl Shader {
         let module = match wgsl::parse_str(&self.src) {
             Ok(module) => module,
             Err(parse_error) => {
-                self.errors.push(format!("Parse error: {}", parse_error));
+                let line = parse_error
+                    .labels()
+                    .next()
+                    .map(|(span, _)| span.location(&self.src).line_number);
+
+                self.errors.push((format!("{}", parse_error), line));
                 return;
             }
         };
@@ -50,8 +55,12 @@ impl Shader {
         let _module_info = match validator.validate(&module) {
             Ok(info) => info,
             Err(validation_error) => {
-                self.errors
-                    .push(format!("Validation error: {}", validation_error));
+                let line = validation_error
+                    .spans()
+                    .next()
+                    .map(|(span, _)| span.location(&self.src).line_number);
+
+                self.errors.push((format!("{}", validation_error), line));
                 return;
             }
         };
@@ -110,11 +119,11 @@ impl Shader {
         &self.bindings
     }
 
-    pub fn get_errors(&self) -> &[String] {
+    pub fn get_errors(&self) -> &[(String, Option<u32>)] {
         &self.errors
     }
 
-    pub fn get_warnings(&self) -> &[String] {
+    pub fn get_warnings(&self) -> &[(String, Option<u32>)] {
         &self.warnings
     }
 
