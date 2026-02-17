@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     editor::Editor,
     egui_util::KeyModifiers,
-    project::Project,
+    project::{CodeFileType, Project},
     runtime::{Runtime, Static},
     time::FpsCounter,
 };
@@ -64,7 +64,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
         &mut self,
         _target_view: &wgpu::TextureView,
         _target_format: wgpu::TextureFormat,
-        _device: &wgpu::Device,
+        device: &wgpu::Device,
         _queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
         key_modifiers: &KeyModifiers,
@@ -79,6 +79,19 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
         }
 
         app.editor.ui(egui_ctx, &mut app.project, key_modifiers);
+
+        if let Some(project) = &mut app.project {
+            // TODO: cloning all sources here is slow
+            let code_sources: Vec<(uuid::Uuid, String)> = project
+                .code_files
+                .files_iter()
+                .filter(|(_, f)| f.ty() == CodeFileType::Fragment)
+                .map(|(id, f)| (*id, f.source.clone()))
+                .collect();
+
+            let rg = project.render_graph_mut();
+            rg.sync_graphics_shaders(&code_sources, device);
+        }
     }
 }
 

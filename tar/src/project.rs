@@ -521,6 +521,10 @@ impl Project {
         }
     }
 
+    pub fn render_graph(&self) -> &RenderGraph {
+        &self.render_graph
+    }
+
     pub fn render_graph_mut(&mut self) -> &mut RenderGraph {
         &mut self.render_graph
     }

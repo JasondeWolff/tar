@@ -103,7 +103,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui);
             }
             Tab::Console(tab) => {
-                tab.ui(ui);
+                tab.ui(ui, self.project);
             }
             Tab::FileExplorer(tab) => {
                 tab.ui(ui, self.project, self.drag_payload, self.file_to_open);

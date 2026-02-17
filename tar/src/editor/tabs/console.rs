@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use crate::project::Project;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConsoleTab {
     id: Uuid,
@@ -16,5 +18,12 @@ impl ConsoleTab {
         self.id
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {}
+    pub fn ui(&mut self, ui: &mut egui::Ui, project: &Project) {
+        let rg = project.render_graph();
+
+        for (id, shader) in rg.shaders_iter() {
+            shader.get_errors();
+            shader.get_warnings();
+        }
+    }
 }

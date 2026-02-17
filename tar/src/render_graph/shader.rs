@@ -123,7 +123,9 @@ impl Shader {
     }
 
     pub fn update_source(&mut self, new_src: String, device: &wgpu::Device) {
-        self.src = new_src;
-        self.compile(device);
+        if new_src != self.src {
+            self.src = new_src;
+            self.compile(device);
+        }
     }
 }

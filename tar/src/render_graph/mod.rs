@@ -309,17 +309,34 @@ impl RenderGraph {
         }
     }
 
-    pub fn compile(&mut self) -> Result<(), String> {
-        // let mut frontend = wgsl::Frontend::new();
+    /// Synchronize the shader cache with the current code file sources.
+    /// Compiles new/changed fragment shaders and removes deleted ones.
+    pub fn sync_graphics_shaders(
+        &mut self,
+        code_sources: &[(Uuid, String)],
+        device: &wgpu::Device,
+    ) {
+        let valid_ids: std::collections::HashSet<Uuid> =
+            code_sources.iter().map(|(id, _)| *id).collect();
 
-        // let module = frontend
-        //     .parse(&self.source)
-        //     .map_err(|e| e.emit_to_string(&self.source))?;
+        // Remove deleted shaders
+        self.graph_state
+            .shader_cache
+            .retain(|id, _| valid_ids.contains(id));
 
-        // let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
+        // Add or update shaders
+        for (id, source) in code_sources {
+            if let Some(shader) = self.graph_state.shader_cache.get_mut(id) {
+                shader.update_source(source.to_owned(), device);
+            } else {
+                self.graph_state
+                    .shader_cache
+                    .insert(*id, Shader::new(source.to_owned(), device));
+            }
+        }
+    }
 
-        // validator.validate(&module).map_err(|e| format!("{e:?}"))?;
-
-        Ok(())
+    pub fn shaders_iter(&self) -> impl Iterator<Item = (&Uuid, &Shader)> {
+        self.graph_state.shader_cache.iter()
     }
 }
