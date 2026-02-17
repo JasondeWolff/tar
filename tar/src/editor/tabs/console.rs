@@ -12,6 +12,7 @@ enum Severity {
 struct ConsoleMessage {
     severity: Severity,
     text: String,
+    file: Uuid,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +33,7 @@ impl Default for ConsoleTab {
 }
 
 impl ConsoleTab {
-    const ROW_HEIGHT: f32 = 24.0;
+    const ROW_HEIGHT: f32 = 40.0;
     const ICON_LEFT_PAD: f32 = 8.0;
     const TEXT_LEFT_PAD: f32 = 8.0;
 
@@ -62,7 +63,7 @@ impl ConsoleTab {
             .auto_shrink([false, false])
             .show_rows(ui, Self::ROW_HEIGHT, filtered.len(), |ui, row_range| {
                 for i in row_range {
-                    self.draw_message_row(ui, filtered[i]);
+                    self.draw_message_row(ui, project, filtered[i]);
                 }
             });
     }
@@ -71,17 +72,19 @@ impl ConsoleTab {
         let rg = project.render_graph();
         let mut messages = Vec::new();
 
-        for (_id, shader) in rg.shaders_iter() {
+        for (id, shader) in rg.shaders_iter() {
             for err in shader.get_errors() {
                 messages.push(ConsoleMessage {
                     severity: Severity::Error,
                     text: err.clone(),
+                    file: *id,
                 });
             }
             for warn in shader.get_warnings() {
                 messages.push(ConsoleMessage {
                     severity: Severity::Warning,
                     text: warn.clone(),
+                    file: *id,
                 });
             }
         }
@@ -101,7 +104,6 @@ impl ConsoleTab {
 
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                //
                 ui.add_space(8.0);
 
                 // Error toggle
@@ -133,7 +135,7 @@ impl ConsoleTab {
         });
     }
 
-    fn draw_message_row(&self, ui: &mut egui::Ui, message: &ConsoleMessage) {
+    fn draw_message_row(&self, ui: &mut egui::Ui, project: &Project, message: &ConsoleMessage) {
         let row_rect = ui
             .allocate_space(egui::vec2(ui.available_width(), Self::ROW_HEIGHT))
             .1;
@@ -152,20 +154,21 @@ impl ConsoleTab {
         };
 
         // Draw icon
-        let icon_pos = egui::pos2(row_rect.min.x + Self::ICON_LEFT_PAD, row_rect.center().y);
+        let icon_pos = egui::pos2(
+            row_rect.min.x + Self::ICON_LEFT_PAD,
+            row_rect.min.y + Self::ROW_HEIGHT * 0.5,
+        );
         ui.painter().text(
             icon_pos,
             egui::Align2::LEFT_CENTER,
             icon,
-            egui::FontId::proportional(14.0),
+            egui::FontId::proportional(24.0),
             icon_color,
         );
 
-        // Draw message text
-        let text_pos = egui::pos2(
-            row_rect.min.x + Self::ICON_LEFT_PAD + 18.0 + Self::TEXT_LEFT_PAD,
-            row_rect.center().y,
-        );
+        // Draw message text (upper portion of the row)
+        let text_left = row_rect.min.x + Self::ICON_LEFT_PAD + 24.0 + Self::TEXT_LEFT_PAD;
+        let text_pos = egui::pos2(text_left, row_rect.min.y + Self::ROW_HEIGHT * 0.35);
         ui.painter().text(
             text_pos,
             egui::Align2::LEFT_CENTER,
@@ -173,5 +176,24 @@ impl ConsoleTab {
             egui::FontId::proportional(13.0),
             ui.visuals().text_color(),
         );
+
+        // Draw file name (bottom-left, smaller and dimmer — Unity style)
+        let file_name = project
+            .code_files
+            .get_file(message.file)
+            .map(|file| file.relative_path().file_name().unwrap_or_default())
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if !file_name.is_empty() {
+            let file_pos = egui::pos2(text_left, row_rect.min.y + Self::ROW_HEIGHT * 0.75);
+            ui.painter().text(
+                file_pos,
+                egui::Align2::LEFT_CENTER,
+                &file_name,
+                egui::FontId::proportional(11.0),
+                ui.visuals().weak_text_color(),
+            );
+        }
     }
 }
