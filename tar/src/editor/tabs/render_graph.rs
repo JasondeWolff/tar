@@ -110,6 +110,8 @@ impl DataTypeTrait<RgGraphState> for RgDataType {
             Self::Tex3D => egui::Color32::from_rgb(211, 182, 38),
             Self::HistoryTex3D => egui::Color32::from_rgb(182, 38, 211),
             Self::Tex3DArray => egui::Color32::from_rgb(38, 211, 182),
+            Self::Buffer => egui::Color32::from_rgb(38, 211, 182),
+            Self::HistoryBuffer => egui::Color32::from_rgb(38, 211, 182),
             Self::CodeFile => egui::Color32::from_rgb(38, 211, 182),
         }
     }
@@ -129,6 +131,8 @@ impl DataTypeTrait<RgGraphState> for RgDataType {
             Self::Tex3D => Cow::Borrowed("3D texture"),
             Self::HistoryTex3D => Cow::Borrowed("history 3D texture"),
             Self::Tex3DArray => Cow::Borrowed("3D texture array"),
+            Self::Buffer => Cow::Borrowed("buffer"),
+            Self::HistoryBuffer => Cow::Borrowed("history buffer"),
             Self::CodeFile => Cow::Borrowed("code file"),
         }
     }
@@ -153,6 +157,8 @@ impl NodeTemplateTrait for RgNodeTemplate {
             Self::Tex3D => "Tex 3D",
             Self::HistoryTex3D => "History Tex 3D",
             Self::Tex3DArray => "Tex 3D Array",
+            Self::Buffer => "Buffer",
+            Self::HistoryBuffer => "History Buffer",
 
             Self::GraphicsPass => "Graphics Pass",
 
@@ -171,6 +177,10 @@ impl NodeTemplateTrait for RgNodeTemplate {
             | Self::Tex3D
             | Self::HistoryTex3D
             | Self::Tex3DArray => vec![format!("{} Texture", egui_phosphor::regular::CHECKERBOARD)],
+
+            Self::Buffer | Self::HistoryBuffer => {
+                vec![format!("{} Buffer", egui_phosphor::regular::BINARY)]
+            }
 
             Self::GraphicsPass => vec![format!("{} Render", egui_phosphor::regular::GRAPHICS_CARD)],
 
@@ -330,6 +340,9 @@ impl NodeTemplateTrait for RgNodeTemplate {
         let output_tex_3d_array = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3DArray);
         };
+        let output_buffer = |graph: &mut RgGraph, name: &str| {
+            graph.add_output_param(node_id, name.to_string(), RgDataType::Buffer);
+        };
 
         match self {
             RgNodeTemplate::ScreenTex => {
@@ -390,12 +403,19 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_bool(graph, "persistent");
                 output_tex_3d_array(graph, "tex");
             }
+            RgNodeTemplate::Buffer => {
+                input_uint(graph, "size");
+                input_bool(graph, "persistent");
+                output_buffer(graph, "buf");
+            }
+            RgNodeTemplate::HistoryBuffer => {
+                input_uint(graph, "size");
+                output_buffer(graph, "current buf");
+                output_buffer(graph, "previous buf");
+            }
             RgNodeTemplate::GraphicsPass => {
                 input_code_file(graph, "code");
                 input_tex_2d(graph, "in");
-
-                // TODO: list input paramaters based on evaluated shader code
-
                 output_tex_2d(graph, "out");
             }
             RgNodeTemplate::DisplayOut => {
@@ -553,7 +573,8 @@ impl WidgetValueTrait for RgValueType {
             | Self::Tex2D(_)
             | Self::Tex2DArray(_)
             | Self::Tex3D(_)
-            | Self::Tex3DArray(_) => {
+            | Self::Tex3DArray(_)
+            | Self::Buffer(_) => {
                 ui.label(param_name);
             }
         }

@@ -73,6 +73,10 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return result;
 }
 
+@group(0)
+@binding(0)
+var r_color: texture_2d<f32>;
+
 @fragment
 fn fs_main(vertex: VertexOutput) -> @location(0) vec4f {
     return vec4f(vertex.tex_coords, 0.0, 1.0);
@@ -157,15 +161,15 @@ impl CodeFiles {
         };
 
         let _ = code_files.create_file("main", CodeFileType::Fragment);
-        let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
-        let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
-        let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
-        let _ = code_files.create_file("shared/common", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/math", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
-        let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
+        // let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
+        // let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
+        // let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
+        // let _ = code_files.create_file("shared/common", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/math", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
+        // let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
 
         // for i in 0..100 {
         //     let _ =
@@ -537,7 +541,7 @@ impl Project {
     pub fn new<P: Into<PathBuf>>(path: P) -> Self {
         let path = path.into();
         let code_files = CodeFiles::new(path.parent().unwrap());
-        let render_graph = RenderGraph::new();
+        let render_graph = RenderGraph::new(&code_files);
 
         Self {
             path,

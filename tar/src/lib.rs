@@ -91,6 +91,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
 
             let rg = project.render_graph_mut();
             rg.sync_graphics_shaders(&code_sources, device);
+            rg.sync_dynamic_node_inputs();
         }
     }
 }

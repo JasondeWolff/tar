@@ -3,11 +3,14 @@ use wgpu::naga::{
     valid::{Capabilities, ValidationFlags, Validator},
 };
 
+use crate::render_graph::RgDataType;
+
+#[derive(Debug, Clone)]
 pub struct ShaderBinding {
     pub set: u32,
     pub binding: u32,
     pub name: String,
-    pub resource_type: String,
+    pub resource_type: RgDataType,
 }
 
 pub struct Shader {
@@ -71,19 +74,32 @@ impl Shader {
         for (_handle, global) in module.global_variables.iter() {
             if let Some(binding) = &global.binding {
                 let resource_type = match module.types[global.ty].inner {
-                    wgpu::naga::TypeInner::Image { dim, .. } => match dim {
-                        wgpu::naga::ImageDimension::D1 => "Texture1D",
-                        wgpu::naga::ImageDimension::D2 => "Texture2D",
-                        wgpu::naga::ImageDimension::D3 => "Texture3D",
-                        wgpu::naga::ImageDimension::Cube => "TextureCube",
-                    },
-                    wgpu::naga::TypeInner::Sampler { .. } => "Sampler",
-                    wgpu::naga::TypeInner::Struct { .. } => match global.space {
-                        wgpu::naga::AddressSpace::Uniform => "Uniform Buffer",
-                        wgpu::naga::AddressSpace::Storage { .. } => "Storage Buffer",
-                        _ => "Buffer",
-                    },
-                    _ => "Unknown",
+                    wgpu::naga::TypeInner::Image { dim, arrayed, .. } => {
+                        if !arrayed {
+                            match dim {
+                                wgpu::naga::ImageDimension::D1 => RgDataType::UInt,
+                                wgpu::naga::ImageDimension::D2 => RgDataType::Tex2D,
+                                wgpu::naga::ImageDimension::D3 => RgDataType::Tex3D,
+                                wgpu::naga::ImageDimension::Cube => RgDataType::UInt,
+                            }
+                        } else {
+                            match dim {
+                                wgpu::naga::ImageDimension::D1 => RgDataType::UInt,
+                                wgpu::naga::ImageDimension::D2 => RgDataType::Tex2DArray,
+                                wgpu::naga::ImageDimension::D3 => RgDataType::Tex3DArray,
+                                wgpu::naga::ImageDimension::Cube => RgDataType::UInt,
+                            }
+                        }
+                    }
+                    wgpu::naga::TypeInner::Sampler { .. } => RgDataType::UInt,
+                    wgpu::naga::TypeInner::Struct { .. } | wgpu::naga::TypeInner::Array { .. } => {
+                        match global.space {
+                            wgpu::naga::AddressSpace::Uniform => RgDataType::Buffer,
+                            wgpu::naga::AddressSpace::Storage { .. } => RgDataType::Buffer,
+                            _ => RgDataType::UInt,
+                        }
+                    }
+                    _ => RgDataType::UInt,
                 };
 
                 new_bindings.push(ShaderBinding {
@@ -93,7 +109,7 @@ impl Shader {
                         .name
                         .clone()
                         .unwrap_or_else(|| "unnamed_binding".to_string()),
-                    resource_type: resource_type.to_string(),
+                    resource_type,
                 });
             }
         }
