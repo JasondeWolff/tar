@@ -1,4 +1,4 @@
-use std::{any::TypeId, collections::HashMap, mem::Discriminant, path::PathBuf};
+use std::{any::TypeId, collections::HashMap, path::PathBuf};
 
 use egui_tiles::{TileId, Tiles, Tree};
 use uuid::Uuid;
@@ -7,12 +7,8 @@ use crate::{
     editor::{
         popup::{create_project::CreateProject, open_project::OpenProject, Popup},
         tabs::{
-            code_editor::CodeEditorTab,
-            console::ConsoleTab,
-            file_explorer::{self, FileExplorerTab},
-            render_graph::RenderGraphTab,
-            viewport::ViewportTab,
-            Tab, TabViewer,
+            code_editor::CodeEditorTab, console::ConsoleTab, file_explorer::FileExplorerTab,
+            render_graph::RenderGraphTab, viewport::ViewportTab, Tab, TabViewer,
         },
     },
     egui_util::KeyModifiers,
@@ -34,7 +30,6 @@ pub enum EditorDragPayload {
 
 struct Tabs {
     tree: Tree<Tab>,
-    file_explorer_id: TileId,
     last_focussed_code_editor: Option<TileId>,
 }
 
@@ -101,7 +96,6 @@ impl Tabs {
 
         Self {
             tree,
-            file_explorer_id,
             last_focussed_code_editor: None,
         }
     }
@@ -309,37 +303,6 @@ impl Editor {
                                     .on_hover_text("Save the currently focussed code file");
                             });
                         }
-                    });
-                });
-            });
-
-            // Allocate space for 1 horizontally centered button
-            let desired_size = egui::Vec2::new(100.0, 20.0);
-            let center = ui.min_rect().center();
-            let rect = egui::Rect::from_center_size(center, desired_size);
-
-            ui.add_enabled_ui(true, |ui| {
-                ui.allocate_ui_at_rect(rect, |ui| {
-                    ui.columns(1, |columns| {
-                        columns[0].vertical_centered(|ui| {
-                            let is_compiling = false;
-                            if ui
-                                .add(
-                                    egui::Button::new(format!(
-                                        "{} Compile",
-                                        egui_phosphor::regular::HAMMER
-                                    ))
-                                    .fill(if is_compiling {
-                                        egui::Color32::from_rgb(10, 100, 255) // TODO:"cool animated "breathing" color"
-                                    } else {
-                                        ui.visuals().widgets.active.bg_fill
-                                    }),
-                                )
-                                .clicked()
-                            {
-                                println!("COMPILE!");
-                            }
-                        });
                     });
                 });
             });

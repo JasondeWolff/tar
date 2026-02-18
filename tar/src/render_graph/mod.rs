@@ -1,20 +1,16 @@
-use std::{collections::HashMap, default, num::NonZeroU32, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use strum::{EnumIter, EnumString};
+use strum::EnumIter;
 use uuid::Uuid;
-use wgpu::naga::{
-    front::wgsl,
-    valid::{Capabilities, ValidationFlags, Validator},
-};
 
 use crate::{
     editor::{
-        node_graph::{self, Graph, InputParamKind, NodeId, NodeResponse, NodeTemplateTrait},
+        node_graph::{self, InputParamKind, NodeId, NodeResponse, NodeTemplateTrait},
         tabs::render_graph::{AllMyNodeTemplates, MyResponse, RgEditorState},
         EditorDragPayload,
     },
-    project::{CodeFileType, CodeFiles, Project},
+    project::{CodeFileType, CodeFiles},
     render_graph::shader::Shader,
     wgpu_util::BasicColorTextureFormat,
 };
