@@ -4,7 +4,7 @@ use anyhow::bail;
 use uuid::Uuid;
 
 use crate::{
-    editor::node_graph::NodeId,
+    editor::node_graph::{NodeId, OutputId},
     render_graph::{shader::Shader, RgGraph, RgNodeTemplate, RgValueType, ScreenTexResolution},
 };
 
@@ -99,6 +99,7 @@ impl CompiledRenderGraph {
         graph: &RgGraph,
         shader_cache: &HashMap<Uuid, Shader>,
         screen_size: [u32; 2],
+        device: &wgpu::Device,
     ) -> anyhow::Result<Self> {
         let mut buffers = Vec::new();
         let mut textures = Vec::new();
@@ -107,41 +108,276 @@ impl CompiledRenderGraph {
 
         let nodes = topological_sort(graph)?;
 
+        let mut output_buffer_handles: HashMap<OutputId, BufferHandle> = HashMap::new();
+        let mut output_texture_handles: HashMap<OutputId, TextureHandle> = HashMap::new();
+
+        let mut build_tex =
+            |width, height, array_layers, dimension, mip_level_count, format, usage| {
+                let handle = TextureHandle(textures.len());
+
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(&format!("rg texture {}", handle.0)),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: array_layers,
+                    },
+                    mip_level_count,
+                    format,
+                    sample_count: 1,
+                    dimension,
+                    view_formats: &[],
+                    usage,
+                });
+                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                textures.push(texture);
+                texture_views.push(texture_view);
+                handle
+            };
+
+        let mut build_buffer = |size| {
+            let handle = BufferHandle(buffers.len());
+
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("rg buffer {}", handle.0)),
+                size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::UNIFORM,
+                mapped_at_creation: false,
+            });
+
+            buffers.push(buffer);
+            handle
+        };
+
         for &node_id in &nodes {
             let template = graph[node_id].user_data.0;
 
             match template {
                 RgNodeTemplate::ScreenTex => {
-                    let resolution = read_input_value(graph, node_id, "resolution")?
+                    let resolution = *read_input_value(graph, node_id, "resolution")?
                         .as_screen_tex_resolution()?;
-                    let mips = read_input_value(graph, node_id, "mips")?;
-                    let format = match read_input_value(graph, node_id, "format") {
-                        Some(RgValueType::TextureFormat(f)) => f,
-                        _ => BasicColorTextureFormat::default(),
-                    };
-                    let persistent = match read_input_value(graph, node_id, "persistent") {
-                        Some(RgValueType::Bool(b)) => b,
-                        _ => false,
-                    };
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+                    let _persistent = read_input_value(graph, node_id, "persistent")?.as_bool()?;
 
-                    let [w, h] = resolve_screen_resolution(resolution, screen_size);
-                    let handle = TextureHandle(textures.len());
-                    textures.push(TextureAllocation {
-                        handle,
-                        width: w,
-                        height: h,
-                        depth_or_layers: 1,
-                        format: format.into(),
-                        mip_levels: mips,
-                        usage: tex_usage,
-                        dimension: wgpu::TextureDimension::D2,
-                        persistent,
-                    });
+                    let [width, height] = resolution.resolve(screen_size);
+
+                    let handle = build_tex(
+                        width,
+                        height,
+                        1,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
 
                     if let Ok(output_id) = graph[node_id].get_output("tex") {
-                        output_textures.insert(output_id, handle);
+                        output_texture_handles.insert(output_id, handle);
                     }
                 }
+                RgNodeTemplate::HistoryScreenTex => {
+                    let resolution = *read_input_value(graph, node_id, "resolution")?
+                        .as_screen_tex_resolution()?;
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+                    let _persistent = read_input_value(graph, node_id, "persistent")?.as_bool()?;
+
+                    let [width, height] = resolution.resolve(screen_size);
+
+                    let current_handle = build_tex(
+                        width,
+                        height,
+                        1,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+                    let previous_handle = build_tex(
+                        width,
+                        height,
+                        1,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+
+                    if let Ok(output_id) = graph[node_id].get_output("current tex") {
+                        output_texture_handles.insert(output_id, current_handle);
+                    }
+                    if let Ok(output_id) = graph[node_id].get_output("previous tex") {
+                        output_texture_handles.insert(output_id, previous_handle);
+                    }
+                }
+                RgNodeTemplate::Tex2D => {
+                    let [width, height] =
+                        *read_input_value(graph, node_id, "resolution")?.as_uint2()?;
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+                    let _persistent = read_input_value(graph, node_id, "persistent")?.as_bool()?;
+
+                    let handle = build_tex(
+                        width,
+                        height,
+                        1,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+
+                    if let Ok(output_id) = graph[node_id].get_output("tex") {
+                        output_texture_handles.insert(output_id, handle);
+                    }
+                }
+                RgNodeTemplate::HistoryTex2D => {
+                    let [width, height] =
+                        *read_input_value(graph, node_id, "resolution")?.as_uint2()?;
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+
+                    let current_handle = build_tex(
+                        width,
+                        height,
+                        1,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+                    let previous_handle = build_tex(
+                        width,
+                        height,
+                        1,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+
+                    if let Ok(output_id) = graph[node_id].get_output("current tex") {
+                        output_texture_handles.insert(output_id, current_handle);
+                    }
+                    if let Ok(output_id) = graph[node_id].get_output("previous tex") {
+                        output_texture_handles.insert(output_id, previous_handle);
+                    }
+                }
+                RgNodeTemplate::Tex2DArray => {
+                    let [width, height] =
+                        *read_input_value(graph, node_id, "resolution")?.as_uint2()?;
+                    let array_count = *read_input_value(graph, node_id, "count")?.as_uint()?;
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+                    let _persistent = read_input_value(graph, node_id, "persistent")?.as_bool()?;
+
+                    let handle = build_tex(
+                        width,
+                        height,
+                        array_count,
+                        wgpu::TextureDimension::D2,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+
+                    if let Ok(output_id) = graph[node_id].get_output("tex") {
+                        output_texture_handles.insert(output_id, handle);
+                    }
+                }
+                RgNodeTemplate::Tex3D => {
+                    let [width, height, depth] =
+                        *read_input_value(graph, node_id, "resolution")?.as_uint3()?;
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+                    let _persistent = read_input_value(graph, node_id, "persistent")?.as_bool()?;
+
+                    let handle = build_tex(
+                        width,
+                        height,
+                        depth,
+                        wgpu::TextureDimension::D3,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+
+                    if let Ok(output_id) = graph[node_id].get_output("tex") {
+                        output_texture_handles.insert(output_id, handle);
+                    }
+                }
+                RgNodeTemplate::HistoryTex3D => {
+                    let [width, height, depth] =
+                        *read_input_value(graph, node_id, "resolution")?.as_uint3()?;
+                    let mip_level_count = *read_input_value(graph, node_id, "mips")?.as_uint()?;
+                    let format =
+                        *read_input_value(graph, node_id, "format")?.as_texture_format()?;
+                    let usage = *read_input_value(graph, node_id, "usage")?.as_texture_usage()?;
+
+                    let current_handle = build_tex(
+                        width,
+                        height,
+                        depth,
+                        wgpu::TextureDimension::D3,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+                    let previous_handle = build_tex(
+                        width,
+                        height,
+                        depth,
+                        wgpu::TextureDimension::D3,
+                        mip_level_count,
+                        format.into(),
+                        usage.into(),
+                    );
+
+                    if let Ok(output_id) = graph[node_id].get_output("current tex") {
+                        output_texture_handles.insert(output_id, current_handle);
+                    }
+                    if let Ok(output_id) = graph[node_id].get_output("previous tex") {
+                        output_texture_handles.insert(output_id, previous_handle);
+                    }
+                }
+                RgNodeTemplate::Buffer => {
+                    let size = *read_input_value(graph, node_id, "size")?.as_uint()?;
+                    let _persistent = read_input_value(graph, node_id, "persistent")?.as_bool()?;
+
+                    let handle = build_buffer(size as u64);
+
+                    if let Ok(output_id) = graph[node_id].get_output("buf") {
+                        output_buffer_handles.insert(output_id, handle);
+                    }
+                }
+                RgNodeTemplate::HistoryBuffer => {
+                    let size = *read_input_value(graph, node_id, "size")?.as_uint()?;
+
+                    let current_handle = build_buffer(size as u64);
+                    let previous_handle = build_buffer(size as u64);
+
+                    if let Ok(output_id) = graph[node_id].get_output("current buf") {
+                        output_buffer_handles.insert(output_id, current_handle);
+                    }
+                    if let Ok(output_id) = graph[node_id].get_output("previous buf") {
+                        output_buffer_handles.insert(output_id, previous_handle);
+                    }
+                }
+
                 _ => {}
             }
         }

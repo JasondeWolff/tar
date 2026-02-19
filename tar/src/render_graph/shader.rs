@@ -86,7 +86,7 @@ impl Shader {
                             match dim {
                                 wgpu::naga::ImageDimension::D1 => RgDataType::UInt,
                                 wgpu::naga::ImageDimension::D2 => RgDataType::Tex2DArray,
-                                wgpu::naga::ImageDimension::D3 => RgDataType::Tex3DArray,
+                                wgpu::naga::ImageDimension::D3 => RgDataType::UInt,
                                 wgpu::naga::ImageDimension::Cube => RgDataType::UInt,
                             }
                         }

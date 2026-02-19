@@ -9,7 +9,7 @@ use crate::{
     project::{CodeFileType, Project},
     render_graph::{
         RgDataType, RgGraph, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType,
-        ScreenTexResolution, Tex2D, Tex2DArray, Tex3D, Tex3DArray,
+        ScreenTexResolution, Tex2D, Tex2DArray, Tex3D, TextureUsage,
     },
     wgpu_util::BasicColorTextureFormat,
 };
@@ -104,12 +104,12 @@ impl DataTypeTrait<RgGraphState> for RgDataType {
             Self::Bool => egui::Color32::from_rgb(238, 207, 109),
             Self::ScreenTexResolution => egui::Color32::from_rgb(238, 207, 109),
             Self::TextureFormat => egui::Color32::from_rgb(238, 207, 109),
+            Self::TextureUsage => egui::Color32::from_rgb(238, 207, 109),
             Self::Tex2D => egui::Color32::from_rgb(109, 238, 182),
             Self::HistoryTex2D => egui::Color32::from_rgb(238, 109, 182),
             Self::Tex2DArray => egui::Color32::from_rgb(109, 182, 238),
             Self::Tex3D => egui::Color32::from_rgb(211, 182, 38),
             Self::HistoryTex3D => egui::Color32::from_rgb(182, 38, 211),
-            Self::Tex3DArray => egui::Color32::from_rgb(38, 211, 182),
             Self::Buffer => egui::Color32::from_rgb(38, 211, 182),
             Self::HistoryBuffer => egui::Color32::from_rgb(38, 211, 182),
             Self::CodeFile => egui::Color32::from_rgb(38, 211, 182),
@@ -125,12 +125,12 @@ impl DataTypeTrait<RgGraphState> for RgDataType {
             Self::Bool => Cow::Borrowed("bool"),
             Self::ScreenTexResolution => Cow::Borrowed("screen texture resolution"),
             Self::TextureFormat => Cow::Borrowed("texture format"),
+            Self::TextureUsage => Cow::Borrowed("texture usage"),
             Self::Tex2D => Cow::Borrowed("2D texture"),
             Self::HistoryTex2D => Cow::Borrowed("history 2D texture"),
             Self::Tex2DArray => Cow::Borrowed("2D texture array"),
             Self::Tex3D => Cow::Borrowed("3D texture"),
             Self::HistoryTex3D => Cow::Borrowed("history 3D texture"),
-            Self::Tex3DArray => Cow::Borrowed("3D texture array"),
             Self::Buffer => Cow::Borrowed("buffer"),
             Self::HistoryBuffer => Cow::Borrowed("history buffer"),
             Self::CodeFile => Cow::Borrowed("code file"),
@@ -156,7 +156,6 @@ impl NodeTemplateTrait for RgNodeTemplate {
             Self::Tex2DArray => "Tex 2D Array",
             Self::Tex3D => "Tex 3D",
             Self::HistoryTex3D => "History Tex 3D",
-            Self::Tex3DArray => "Tex 3D Array",
             Self::Buffer => "Buffer",
             Self::HistoryBuffer => "History Buffer",
 
@@ -175,8 +174,9 @@ impl NodeTemplateTrait for RgNodeTemplate {
             | Self::HistoryTex2D
             | Self::Tex2DArray
             | Self::Tex3D
-            | Self::HistoryTex3D
-            | Self::Tex3DArray => vec![format!("{} Texture", egui_phosphor::regular::CHECKERBOARD)],
+            | Self::HistoryTex3D => {
+                vec![format!("{} Texture", egui_phosphor::regular::CHECKERBOARD)]
+            }
 
             Self::Buffer | Self::HistoryBuffer => {
                 vec![format!("{} Buffer", egui_phosphor::regular::BINARY)]
@@ -277,6 +277,17 @@ impl NodeTemplateTrait for RgNodeTemplate {
             );
         };
 
+        let input_tex_usage = |graph: &mut RgGraph, name: &str| {
+            graph.add_input_param(
+                node_id,
+                name.to_string(),
+                RgDataType::TextureUsage,
+                RgValueType::TextureUsage(TextureUsage::default()),
+                InputParamKind::ConstantOnly,
+                true,
+            );
+        };
+
         let input_tex_2d = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
@@ -307,16 +318,6 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 true,
             );
         };
-        let input_tex_3d_array = |graph: &mut RgGraph, name: &str| {
-            graph.add_input_param(
-                node_id,
-                name.to_string(),
-                RgDataType::Tex3DArray,
-                RgValueType::Tex3DArray(Tex3DArray::default()),
-                InputParamKind::ConnectionOnly,
-                true,
-            );
-        };
         let input_code_file = |graph: &mut RgGraph, name: &str| {
             graph.add_input_param(
                 node_id,
@@ -337,9 +338,6 @@ impl NodeTemplateTrait for RgNodeTemplate {
         let output_tex_3d = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3D);
         };
-        let output_tex_3d_array = |graph: &mut RgGraph, name: &str| {
-            graph.add_output_param(node_id, name.to_string(), RgDataType::Tex3DArray);
-        };
         let output_buffer = |graph: &mut RgGraph, name: &str| {
             graph.add_output_param(node_id, name.to_string(), RgDataType::Buffer);
         };
@@ -356,6 +354,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_screen_tex_resolution(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
+                input_tex_usage(graph, "usage");
                 output_tex_2d(graph, "current tex");
                 output_tex_2d(graph, "previous tex");
             }
@@ -363,6 +362,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_uint2(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
+                input_tex_usage(graph, "usage");
                 input_bool(graph, "persistent");
                 output_tex_2d(graph, "tex");
             }
@@ -370,6 +370,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_uint2(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
+                input_tex_usage(graph, "usage");
                 output_tex_2d(graph, "current tex");
                 output_tex_2d(graph, "previous tex");
             }
@@ -394,14 +395,6 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_tex_format(graph, "format");
                 output_tex_3d(graph, "current tex");
                 output_tex_3d(graph, "previous tex");
-            }
-            RgNodeTemplate::Tex3DArray => {
-                input_uint3(graph, "resolution");
-                input_uint(graph, "count");
-                input_uint(graph, "mips");
-                input_tex_format(graph, "format");
-                input_bool(graph, "persistent");
-                output_tex_3d_array(graph, "tex");
             }
             RgNodeTemplate::Buffer => {
                 input_uint(graph, "size");
@@ -511,6 +504,18 @@ impl WidgetValueTrait for RgValueType {
                         });
                 });
             }
+            Self::TextureUsage(value) => {
+                ui.horizontal(|ui| {
+                    ui.label(param_name);
+                    egui::ComboBox::from_id_salt(param_name)
+                        .selected_text(value.to_string())
+                        .show_ui(ui, |ui| {
+                            for variant in TextureUsage::iter() {
+                                ui.selectable_value(value, variant, variant.to_string());
+                            }
+                        });
+                });
+            }
             Self::CodeFile(value) => {
                 let editor = user_state.editor.as_mut().unwrap();
                 let code_file_names = &editor.code_file_names;
@@ -573,7 +578,6 @@ impl WidgetValueTrait for RgValueType {
             | Self::Tex2D(_)
             | Self::Tex2DArray(_)
             | Self::Tex3D(_)
-            | Self::Tex3DArray(_)
             | Self::Buffer(_) => {
                 ui.label(param_name);
             }

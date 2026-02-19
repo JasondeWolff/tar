@@ -49,6 +49,36 @@ impl ScreenTexResolution {
     }
 }
 
+#[derive(
+    Default,
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    strum::EnumIter,
+    strum::Display,
+)]
+pub enum TextureUsage {
+    #[default]
+    RenderTarget,
+    Storage,
+}
+
+impl From<TextureUsage> for wgpu::TextureUsages {
+    fn from(usage: TextureUsage) -> Self {
+        match usage {
+            TextureUsage::RenderTarget => {
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
+            }
+            TextureUsage::Storage => {
+                wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING
+            }
+        }
+    }
+}
+
 #[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ScreenTex {
     pub resolution: ScreenTexResolution,
@@ -104,15 +134,6 @@ pub struct HistoryTex3D {
 }
 
 #[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Tex3DArray {
-    pub resolution: [u32; 3],
-    pub count: u32,
-    pub mipmaps: u32,
-    pub format: BasicColorTextureFormat,
-    pub persistent: bool,
-}
-
-#[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Buffer {
     pub size: u32,
     pub persistent: bool,
@@ -133,13 +154,13 @@ pub enum RgDataType {
 
     ScreenTexResolution,
     TextureFormat,
+    TextureUsage,
 
     Tex2D,
     HistoryTex2D,
     Tex2DArray,
     Tex3D,
     HistoryTex3D,
-    Tex3DArray,
     Buffer,
     HistoryBuffer,
 
@@ -156,12 +177,12 @@ pub enum RgValueType {
 
     ScreenTexResolution(ScreenTexResolution),
     TextureFormat(BasicColorTextureFormat),
+    TextureUsage(TextureUsage),
 
     ScreenTex(ScreenTex),
     Tex2D(Tex2D),
     Tex2DArray(Tex2DArray),
     Tex3D(Tex3D),
-    Tex3DArray(Tex3DArray),
     Buffer(Buffer),
 
     CodeFile(Option<Uuid>),
@@ -187,6 +208,90 @@ impl RgValueType {
             _ => bail!("{:?} is not of type TextureFormat", self),
         }
     }
+
+    pub fn as_texture_usage(&self) -> anyhow::Result<&TextureUsage> {
+        match self {
+            Self::TextureUsage(result) => Ok(result),
+            _ => bail!("{:?} is not of type TextureUsage", self),
+        }
+    }
+
+    pub fn as_uint(&self) -> anyhow::Result<&u32> {
+        match self {
+            Self::UInt(result) => Ok(result),
+            _ => bail!("{:?} is not of type UInt", self),
+        }
+    }
+
+    pub fn as_uint2(&self) -> anyhow::Result<&[u32; 2]> {
+        match self {
+            Self::UInt2(result) => Ok(result),
+            _ => bail!("{:?} is not of type UInt2", self),
+        }
+    }
+
+    pub fn as_uint3(&self) -> anyhow::Result<&[u32; 3]> {
+        match self {
+            Self::UInt3(result) => Ok(result),
+            _ => bail!("{:?} is not of type UInt3", self),
+        }
+    }
+
+    pub fn as_float(&self) -> anyhow::Result<&f32> {
+        match self {
+            Self::Float(result) => Ok(result),
+            _ => bail!("{:?} is not of type Float", self),
+        }
+    }
+
+    pub fn as_bool(&self) -> anyhow::Result<&bool> {
+        match self {
+            Self::Bool(result) => Ok(result),
+            _ => bail!("{:?} is not of type Bool", self),
+        }
+    }
+
+    pub fn as_screen_tex(&self) -> anyhow::Result<&ScreenTex> {
+        match self {
+            Self::ScreenTex(result) => Ok(result),
+            _ => bail!("{:?} is not of type ScreenTex", self),
+        }
+    }
+
+    pub fn as_tex2d(&self) -> anyhow::Result<&Tex2D> {
+        match self {
+            Self::Tex2D(result) => Ok(result),
+            _ => bail!("{:?} is not of type Tex2D", self),
+        }
+    }
+
+    pub fn as_tex2d_array(&self) -> anyhow::Result<&Tex2DArray> {
+        match self {
+            Self::Tex2DArray(result) => Ok(result),
+            _ => bail!("{:?} is not of type Tex2DArray", self),
+        }
+    }
+
+    pub fn as_tex3d(&self) -> anyhow::Result<&Tex3D> {
+        match self {
+            Self::Tex3D(result) => Ok(result),
+            _ => bail!("{:?} is not of type Tex3D", self),
+        }
+    }
+
+    pub fn as_buffer(&self) -> anyhow::Result<&Buffer> {
+        match self {
+            Self::Buffer(result) => Ok(result),
+            _ => bail!("{:?} is not of type Buffer", self),
+        }
+    }
+
+    pub fn as_code_file(&self) -> anyhow::Result<&Option<Uuid>> {
+        match self {
+            Self::CodeFile(result) => Ok(result),
+            _ => bail!("{:?} is not of type CodeFile", self),
+        }
+    }
 }
 
 #[derive(Clone, Copy, serde::Serialize, serde::Deserialize, EnumIter)]
@@ -198,7 +303,6 @@ pub enum RgNodeTemplate {
     Tex2DArray,
     Tex3D,
     HistoryTex3D,
-    Tex3DArray,
     Buffer,
     HistoryBuffer,
 
