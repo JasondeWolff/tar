@@ -8,8 +8,8 @@ use crate::{
     editor::{node_graph::*, EditorDragPayload},
     project::{CodeFileType, Project},
     render_graph::{
-        RgDataType, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType, ScreenTexResolution,
-        Tex2D, Tex2DArray, Tex3D, Tex3DArray,
+        RgDataType, RgGraph, RgGraphState, RgNodeData, RgNodeTemplate, RgValueType,
+        ScreenTexResolution, Tex2D, Tex2DArray, Tex3D, Tex3DArray,
     },
     wgpu_util::BasicColorTextureFormat,
 };
@@ -645,7 +645,6 @@ impl NodeDataTrait for RgNodeData {
     }
 }
 
-type RgGraph = Graph<RgNodeData, RgDataType, RgValueType>;
 pub type RgEditorState =
     GraphEditorState<RgNodeData, RgDataType, RgValueType, RgNodeTemplate, RgGraphState>;
 

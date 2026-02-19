@@ -1,12 +1,13 @@
 use std::{collections::HashMap, path::PathBuf};
 
+use anyhow::bail;
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 use uuid::Uuid;
 
 use crate::{
     editor::{
-        node_graph::{self, InputParamKind, NodeId, NodeResponse, NodeTemplateTrait},
+        node_graph::{self, Graph, InputParamKind, NodeId, NodeResponse, NodeTemplateTrait},
         tabs::render_graph::{AllMyNodeTemplates, MyResponse, RgEditorState},
         EditorDragPayload,
     },
@@ -15,7 +16,10 @@ use crate::{
     wgpu_util::BasicColorTextureFormat,
 };
 
+pub mod compiled_render_graph;
 pub mod shader;
+
+pub type RgGraph = Graph<RgNodeData, RgDataType, RgValueType>;
 
 #[derive(
     Default,
@@ -33,6 +37,16 @@ pub enum ScreenTexResolution {
     Full,
     Half,
     Quarter,
+}
+
+impl ScreenTexResolution {
+    pub fn resolve(&self, screen_size: [u32; 2]) -> [u32; 2] {
+        match self {
+            Self::Full => screen_size,
+            Self::Half => [screen_size[0].div_ceil(2), screen_size[1].div_ceil(2)],
+            Self::Quarter => [screen_size[0].div_ceil(4), screen_size[1].div_ceil(4)],
+        }
+    }
 }
 
 #[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -156,6 +170,22 @@ pub enum RgValueType {
 impl Default for RgValueType {
     fn default() -> Self {
         Self::UInt(0)
+    }
+}
+
+impl RgValueType {
+    pub fn as_screen_tex_resolution(&self) -> anyhow::Result<&ScreenTexResolution> {
+        match self {
+            Self::ScreenTexResolution(result) => Ok(result),
+            _ => bail!("{:?} is not of type ScreenTexResolution", self),
+        }
+    }
+
+    pub fn as_texture_format(&self) -> anyhow::Result<&BasicColorTextureFormat> {
+        match self {
+            Self::TextureFormat(result) => Ok(result),
+            _ => bail!("{:?} is not of type TextureFormat", self),
+        }
     }
 }
 
