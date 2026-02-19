@@ -574,11 +574,7 @@ impl WidgetValueTrait for RgValueType {
                     }
                 });
             }
-            Self::ScreenTex(_)
-            | Self::Tex2D(_)
-            | Self::Tex2DArray(_)
-            | Self::Tex3D(_)
-            | Self::Buffer(_) => {
+            Self::Tex2D(_) | Self::Tex2DArray(_) | Self::Tex3D(_) | Self::Buffer(_) => {
                 ui.label(param_name);
             }
         }

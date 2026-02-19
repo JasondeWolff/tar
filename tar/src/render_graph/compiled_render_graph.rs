@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use uuid::Uuid;
 
 use crate::{
     editor::node_graph::{NodeId, OutputId},
-    render_graph::{shader::Shader, RgGraph, RgNodeTemplate, RgValueType, ScreenTexResolution},
+    render_graph::{
+        shader::Shader, RgDataType, RgGraph, RgNodeTemplate, RgValueType, ScreenTexResolution,
+    },
 };
 
 struct BufferHandle(usize);
@@ -26,6 +28,7 @@ struct CompiledGraphicsPass {
     pub node_id: NodeId,
     pub shader_id: Uuid,
 
+    pub pipeline: wgpu::RenderPipeline,
     pub render_target_texture: TextureHandle,
     pub input_bindings: Vec<InputBinding>,
 }
@@ -111,46 +114,46 @@ impl CompiledRenderGraph {
         let mut output_buffer_handles: HashMap<OutputId, BufferHandle> = HashMap::new();
         let mut output_texture_handles: HashMap<OutputId, TextureHandle> = HashMap::new();
 
-        let mut build_tex =
-            |width, height, array_layers, dimension, mip_level_count, format, usage| {
-                let handle = TextureHandle(textures.len());
+        for &node_id in &nodes {
+            let mut build_tex =
+                |width, height, array_layers, dimension, mip_level_count, format, usage| {
+                    let handle = TextureHandle(textures.len());
 
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some(&format!("rg texture {}", handle.0)),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: array_layers,
-                    },
-                    mip_level_count,
-                    format,
-                    sample_count: 1,
-                    dimension,
-                    view_formats: &[],
-                    usage,
+                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some(&format!("rg texture {}", handle.0)),
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: array_layers,
+                        },
+                        mip_level_count,
+                        format,
+                        sample_count: 1,
+                        dimension,
+                        view_formats: &[],
+                        usage,
+                    });
+                    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                    textures.push(texture);
+                    texture_views.push(texture_view);
+                    handle
+                };
+
+            let mut build_buffer = |size| {
+                let handle = BufferHandle(buffers.len());
+
+                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(&format!("rg buffer {}", handle.0)),
+                    size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::UNIFORM,
+                    mapped_at_creation: false,
                 });
-                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                textures.push(texture);
-                texture_views.push(texture_view);
+                buffers.push(buffer);
                 handle
             };
 
-        let mut build_buffer = |size| {
-            let handle = BufferHandle(buffers.len());
-
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(&format!("rg buffer {}", handle.0)),
-                size,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::UNIFORM,
-                mapped_at_creation: false,
-            });
-
-            buffers.push(buffer);
-            handle
-        };
-
-        for &node_id in &nodes {
             let template = graph[node_id].user_data.0;
 
             match template {
@@ -375,6 +378,67 @@ impl CompiledRenderGraph {
                     }
                     if let Ok(output_id) = graph[node_id].get_output("previous buf") {
                         output_buffer_handles.insert(output_id, previous_handle);
+                    }
+                }
+
+                RgNodeTemplate::GraphicsPass => {
+                    let shader_id = *read_input_value(graph, node_id, "code")?.as_code_file()?;
+                    let in_tex = *read_input_value(graph, node_id, "code")?.as_tex2d()?;
+                    let shader_id = shader_id.ok_or(anyhow!("Unassigned code file"))?;
+
+                    let shader = match shader_cache.get(&shader_id) {
+                        Some(s) if s.shader_module().is_some() => s,
+                        _ => bail!("Invalid shader"), // Shader not compiled or has errors
+                    };
+
+                    let render_target_format: wgpu::TextureFormat = in_tex.format.into();
+
+                    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some(&format!("rg pipeline {}", shader_id)),
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: shader.shader_module().as_ref().unwrap(),
+                            entry_point: Some("vs_main"),
+                            buffers: &[],
+                            compilation_options: Default::default(),
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: shader.shader_module().as_ref().unwrap(),
+                            entry_point: Some("cs_main"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(render_target_format.into())],
+                        }),
+                        primitive: wgpu::PrimitiveState::default(),
+                        depth_stencil: None,
+                        multisample: wgpu::MultisampleState::default(),
+                        multiview: None,
+                        cache: None,
+                    });
+
+                    let mut entries: Vec<wgpu::BindGroupEntry> = Vec::new();
+                    for binding in shader.get_bindings() {
+                        match binding.resource_type {
+                            RgDataType::Tex2D => {
+                                // FUNC
+                                if let Ok(input_id) = graph[node_id].get_input(&binding.name) {
+                                    if let Some(connected_output) = graph.connection(input_id) {
+                                        if let Some(tex_handle) =
+                                            output_texture_handles.get(&connected_output)
+                                        {
+                                            let texture_view = texture_views[tex_handle.0].clone();
+
+                                            entries.push(wgpu::BindGroupEntry {
+                                                binding: binding.set,
+                                                resource: wgpu::BindingResource::TextureView(
+                                                    &texture_view,
+                                                ),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
                     }
                 }
 

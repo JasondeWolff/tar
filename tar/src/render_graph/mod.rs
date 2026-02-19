@@ -179,7 +179,7 @@ pub enum RgValueType {
     TextureFormat(BasicColorTextureFormat),
     TextureUsage(TextureUsage),
 
-    ScreenTex(ScreenTex),
+    //ScreenTex(ScreenTex),
     Tex2D(Tex2D),
     Tex2DArray(Tex2DArray),
     Tex3D(Tex3D),
@@ -251,12 +251,12 @@ impl RgValueType {
         }
     }
 
-    pub fn as_screen_tex(&self) -> anyhow::Result<&ScreenTex> {
-        match self {
-            Self::ScreenTex(result) => Ok(result),
-            _ => bail!("{:?} is not of type ScreenTex", self),
-        }
-    }
+    // pub fn as_screen_tex(&self) -> anyhow::Result<&ScreenTex> {
+    //     match self {
+    //         Self::ScreenTex(result) => Ok(result),
+    //         _ => bail!("{:?} is not of type ScreenTex", self),
+    //     }
+    // }
 
     pub fn as_tex2d(&self) -> anyhow::Result<&Tex2D> {
         match self {
