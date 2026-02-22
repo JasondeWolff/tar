@@ -4,6 +4,7 @@ use crate::{
     editor::Editor,
     egui_util::KeyModifiers,
     project::{CodeFileType, Project},
+    render_graph::compiled_render_graph::CompiledRenderGraph,
     runtime::{Runtime, Static},
     time::FpsCounter,
 };
@@ -32,7 +33,9 @@ impl App {
     }
 }
 
-pub struct RenderPipeline {}
+pub struct RenderPipeline {
+    surface_config: wgpu::SurfaceConfiguration,
+}
 
 impl runtime::RenderPipeline<App> for RenderPipeline {
     fn required_limits() -> wgpu::Limits {
@@ -43,29 +46,30 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
     }
 
     fn init(
-        _config: wgpu::SurfaceConfiguration,
+        surface_config: wgpu::SurfaceConfiguration,
         _adapter: &wgpu::Adapter,
         _device: &wgpu::Device,
         _queue: &wgpu::Queue,
         _window: Arc<winit::window::Window>,
     ) -> Self {
-        Self {}
+        Self { surface_config }
     }
 
     fn resize(
         &mut self,
-        _config: wgpu::SurfaceConfiguration,
+        surface_config: wgpu::SurfaceConfiguration,
         _device: &wgpu::Device,
         _queue: &wgpu::Queue,
     ) {
+        self.surface_config = surface_config;
     }
 
     fn render(
         &mut self,
-        _target_view: &wgpu::TextureView,
-        _target_format: wgpu::TextureFormat,
+        target_view: &wgpu::TextureView,
+        target_format: wgpu::TextureFormat,
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
         key_modifiers: &KeyModifiers,
         app: &mut App,
@@ -92,6 +96,20 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
             let rg = project.render_graph_mut();
             rg.sync_graphics_shaders(&code_sources, device);
             rg.sync_dynamic_node_inputs();
+
+            let resolution = [self.surface_config.width, self.surface_config.height];
+            match rg.compile(resolution, device) {
+                Ok(compiled_rg) => {
+                    let encoder =
+                        compiled_rg.record_command_encoder(device, target_view, target_format);
+
+                    queue.submit(Some(encoder.finish()));
+                }
+                Err(e) => {
+                    // TODO: send to console tab
+                    log::warn!("Failed to compile rg: {}", e);
+                }
+            }
         }
     }
 }

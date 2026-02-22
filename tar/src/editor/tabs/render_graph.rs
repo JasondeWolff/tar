@@ -347,6 +347,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 input_screen_tex_resolution(graph, "resolution");
                 input_uint(graph, "mips");
                 input_tex_format(graph, "format");
+                input_tex_usage(graph, "usage");
                 input_bool(graph, "persistent");
                 output_tex_2d(graph, "tex");
             }

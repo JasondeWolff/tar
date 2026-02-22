@@ -14,7 +14,6 @@ use crate::{
         blit_pass::{encode_blit, BlitPassParameters},
         context_wrapper::ContextWrapper,
         surface_wrapper::SurfaceWrapper,
-        PipelineDatabase,
     },
 };
 
@@ -237,7 +236,6 @@ struct RenderPipelineState<A, R: RenderPipeline<A>> {
     render_pipeline: R,
     color_target: wgpu::Texture,
     egui_pass: EguiPass,
-    pipeline_database: PipelineDatabase,
 
     _phantom: PhantomData<A>,
 }
@@ -286,8 +284,6 @@ impl<A, R: RenderPipeline<A>> RenderPipelineState<A, R> {
 
         let egui_pass = EguiPass::new(color_target.format(), 1, &window, &context.device);
 
-        let pipeline_database = PipelineDatabase::new();
-
         Self {
             window,
             surface,
@@ -295,7 +291,6 @@ impl<A, R: RenderPipeline<A>> RenderPipelineState<A, R> {
             render_pipeline,
             color_target,
             egui_pass,
-            pipeline_database,
             _phantom: PhantomData,
         }
     }
@@ -544,7 +539,6 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
                         },
                         &rp_state.context.device,
                         &mut command_encoder,
-                        &mut rp_state.pipeline_database,
                     );
 
                     rp_state

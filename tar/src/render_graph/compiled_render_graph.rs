@@ -5,32 +5,34 @@ use uuid::Uuid;
 
 use crate::{
     editor::node_graph::{NodeId, OutputId},
-    render_graph::{
-        shader::Shader, RgDataType, RgGraph, RgNodeTemplate, RgValueType, ScreenTexResolution,
-    },
+    render_graph::{shader::Shader, RgDataType, RgGraph, RgNodeTemplate, RgValueType},
+    wgpu_util::blit_pass,
 };
 
+#[derive(Clone, Copy)]
 struct BufferHandle(usize);
+#[derive(Clone, Copy)]
 struct TextureHandle(usize);
 
-enum InputBindingData {
-    Buffer(BufferHandle),
-    Texture(TextureHandle),
-}
+// enum InputBindingData {
+//     Buffer(BufferHandle),
+//     Texture(TextureHandle),
+// }
 
-struct InputBinding {
-    set: u32,
-    binding: u32,
-    data: InputBindingData,
-}
+// struct InputBinding {
+//     set: u32,
+//     binding: u32,
+//     data: InputBindingData,
+// }
 
 struct CompiledGraphicsPass {
     pub node_id: NodeId,
     pub shader_id: Uuid,
 
     pub pipeline: wgpu::RenderPipeline,
+    pub bind_group: Option<wgpu::BindGroup>,
     pub render_target_texture: TextureHandle,
-    pub input_bindings: Vec<InputBinding>,
+    //pub input_bindings: Vec<InputBinding>,
 }
 
 pub struct CompiledRenderGraph {
@@ -39,6 +41,7 @@ pub struct CompiledRenderGraph {
     texture_views: Vec<wgpu::TextureView>,
 
     graphics_passes: Vec<CompiledGraphicsPass>,
+    display_output: TextureHandle,
 }
 
 /// Topologically sort the nodes in a render graph using Kahn's algorithm.
@@ -108,6 +111,7 @@ impl CompiledRenderGraph {
         let mut textures = Vec::new();
         let mut texture_views = Vec::new();
         let mut graphics_passes = Vec::new();
+        let mut display_output = None;
 
         let nodes = topological_sort(graph)?;
 
@@ -115,37 +119,42 @@ impl CompiledRenderGraph {
         let mut output_texture_handles: HashMap<OutputId, TextureHandle> = HashMap::new();
 
         for &node_id in &nodes {
-            let mut build_tex =
-                |width, height, array_layers, dimension, mip_level_count, format, usage| {
-                    let handle = TextureHandle(textures.len());
+            let mut build_tex = |width: u32,
+                                 height: u32,
+                                 array_layers: u32,
+                                 dimension,
+                                 mip_level_count: u32,
+                                 format,
+                                 usage| {
+                let handle = TextureHandle(textures.len());
 
-                    let texture = device.create_texture(&wgpu::TextureDescriptor {
-                        label: Some(&format!("rg texture {}", handle.0)),
-                        size: wgpu::Extent3d {
-                            width,
-                            height,
-                            depth_or_array_layers: array_layers,
-                        },
-                        mip_level_count,
-                        format,
-                        sample_count: 1,
-                        dimension,
-                        view_formats: &[],
-                        usage,
-                    });
-                    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(&format!("rg texture {}", handle.0)),
+                    size: wgpu::Extent3d {
+                        width: width.max(1),
+                        height: height.max(1),
+                        depth_or_array_layers: array_layers.max(1),
+                    },
+                    mip_level_count: mip_level_count.max(1),
+                    format,
+                    sample_count: 1,
+                    dimension,
+                    view_formats: &[],
+                    usage,
+                });
+                let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                    textures.push(texture);
-                    texture_views.push(texture_view);
-                    handle
-                };
+                textures.push(texture);
+                texture_views.push(texture_view);
+                handle
+            };
 
-            let mut build_buffer = |size| {
+            let mut build_buffer = |size: u64| {
                 let handle = BufferHandle(buffers.len());
 
                 let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(&format!("rg buffer {}", handle.0)),
-                    size,
+                    size: size.max(1),
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::UNIFORM,
                     mapped_at_creation: false,
                 });
@@ -383,8 +392,15 @@ impl CompiledRenderGraph {
 
                 RgNodeTemplate::GraphicsPass => {
                     let shader_id = *read_input_value(graph, node_id, "code")?.as_code_file()?;
-                    let in_tex = *read_input_value(graph, node_id, "code")?.as_tex2d()?;
                     let shader_id = shader_id.ok_or(anyhow!("Unassigned code file"))?;
+
+                    // Resolve the render target from the "in" connection.
+                    let in_tex = *read_input_value(graph, node_id, "in")?.as_tex2d()?;
+                    let in_input_id = graph[node_id].get_input("in")?;
+                    let render_target_handle = graph
+                        .connection(in_input_id)
+                        .and_then(|out| output_texture_handles.get(&out).copied())
+                        .ok_or(anyhow!("GraphicsPass 'in' not connected to a texture"))?;
 
                     let shader = match shader_cache.get(&shader_id) {
                         Some(s) if s.shader_module().is_some() => s,
@@ -404,7 +420,7 @@ impl CompiledRenderGraph {
                         },
                         fragment: Some(wgpu::FragmentState {
                             module: shader.shader_module().as_ref().unwrap(),
-                            entry_point: Some("cs_main"),
+                            entry_point: Some("fs_main"),
                             compilation_options: Default::default(),
                             targets: &[Some(render_target_format.into())],
                         }),
@@ -415,24 +431,44 @@ impl CompiledRenderGraph {
                         cache: None,
                     });
 
-                    let mut entries: Vec<wgpu::BindGroupEntry> = Vec::new();
+                    // Collect bind group entries and logical input bindings from shader bindings.
+                    //let mut input_bindings: Vec<InputBinding> = Vec::new();
+
+                    // Separate the index lookups so we can borrow texture_views / buffers
+                    // after the closures are no longer needed.
+                    let mut tex_entries: Vec<(u32, usize)> = Vec::new(); // (binding, tex_idx)
+                    let mut buf_entries: Vec<(u32, usize)> = Vec::new(); // (binding, buf_idx)
+
                     for binding in shader.get_bindings() {
                         match binding.resource_type {
-                            RgDataType::Tex2D => {
-                                // FUNC
+                            RgDataType::Tex2D | RgDataType::Tex2DArray | RgDataType::Tex3D => {
                                 if let Ok(input_id) = graph[node_id].get_input(&binding.name) {
                                     if let Some(connected_output) = graph.connection(input_id) {
                                         if let Some(tex_handle) =
                                             output_texture_handles.get(&connected_output)
                                         {
-                                            let texture_view = texture_views[tex_handle.0].clone();
-
-                                            entries.push(wgpu::BindGroupEntry {
-                                                binding: binding.set,
-                                                resource: wgpu::BindingResource::TextureView(
-                                                    &texture_view,
-                                                ),
-                                            });
+                                            // input_bindings.push(InputBinding {
+                                            //     set: binding.set,
+                                            //     binding: binding.binding,
+                                            //     data: InputBindingData::Texture(*tex_handle),
+                                            // });
+                                            tex_entries.push((binding.binding, tex_handle.0));
+                                        }
+                                    }
+                                }
+                            }
+                            RgDataType::Buffer => {
+                                if let Ok(input_id) = graph[node_id].get_input(&binding.name) {
+                                    if let Some(connected_output) = graph.connection(input_id) {
+                                        if let Some(buf_handle) =
+                                            output_buffer_handles.get(&connected_output)
+                                        {
+                                            // input_bindings.push(InputBinding {
+                                            //     set: binding.set,
+                                            //     binding: binding.binding,
+                                            //     data: InputBindingData::Buffer(*buf_handle),
+                                            // });
+                                            buf_entries.push((binding.binding, buf_handle.0));
                                         }
                                     }
                                 }
@@ -440,17 +476,125 @@ impl CompiledRenderGraph {
                             _ => {}
                         }
                     }
-                }
 
-                _ => {}
+                    // Now build the actual wgpu entries (borrows texture_views / buffers directly).
+                    let mut entries: Vec<wgpu::BindGroupEntry> = Vec::new();
+                    for (binding, idx) in &tex_entries {
+                        entries.push(wgpu::BindGroupEntry {
+                            binding: *binding,
+                            resource: wgpu::BindingResource::TextureView(&texture_views[*idx]),
+                        });
+                    }
+                    for (binding, idx) in &buf_entries {
+                        entries.push(wgpu::BindGroupEntry {
+                            binding: *binding,
+                            resource: buffers[*idx].as_entire_binding(),
+                        });
+                    }
+
+                    let bind_group = if !entries.is_empty() {
+                        Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some(&format!("rg bind group {}", shader_id)),
+                            layout: &pipeline.get_bind_group_layout(0),
+                            entries: &entries,
+                        }))
+                    } else {
+                        None
+                    };
+
+                    graphics_passes.push(CompiledGraphicsPass {
+                        node_id,
+                        shader_id,
+                        pipeline,
+                        bind_group,
+                        render_target_texture: render_target_handle,
+                        //input_bindings,
+                    });
+
+                    if let Ok(output_id) = graph[node_id].get_output("out") {
+                        output_texture_handles.insert(output_id, render_target_handle);
+                    }
+                }
+                RgNodeTemplate::DisplayOut => {
+                    if let Ok(input_id) = graph[node_id].get_input("in") {
+                        if let Some(connected_output) = graph.connection(input_id) {
+                            if let Some(&tex_handle) = output_texture_handles.get(&connected_output)
+                            {
+                                display_output = Some(tex_handle);
+                            } else {
+                                bail!("DisplayOut in texture is invalid");
+                            }
+                        } else {
+                            bail!("DisplayOut in is not connected");
+                        }
+                    } else {
+                        bail!("No input 'in' found for DisplayOut")
+                    }
+                }
             }
         }
+
+        let display_output = display_output.ok_or(anyhow!("No display output"))?;
 
         Ok(Self {
             buffers,
             textures,
             texture_views,
             graphics_passes,
+            display_output,
         })
+    }
+
+    pub fn record_command_encoder(
+        &self,
+        device: &wgpu::Device,
+        target_view: &wgpu::TextureView,
+        target_format: wgpu::TextureFormat,
+    ) -> wgpu::CommandEncoder {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("rg cmd encoder"),
+        });
+
+        for (i, pass) in self.graphics_passes.iter().enumerate() {
+            let output_view = &self.texture_views[pass.render_target_texture.0];
+
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(&format!("rg render pass {}", i)),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                rpass.set_pipeline(&pass.pipeline);
+
+                if let Some(bind_group) = &pass.bind_group {
+                    rpass.set_bind_group(0, bind_group, &[]);
+                }
+
+                rpass.draw(0..3, 0..1);
+            }
+        }
+
+        let src_view = &self.texture_views[self.display_output.0];
+        blit_pass::encode_blit(
+            &blit_pass::BlitPassParameters {
+                src_view,
+                dst_view: target_view,
+                target_format,
+                blending: None,
+            },
+            device,
+            &mut encoder,
+        );
+
+        encoder
     }
 }

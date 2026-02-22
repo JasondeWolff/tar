@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, num::NonZeroU32, path::PathBuf};
 
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use crate::{
         EditorDragPayload,
     },
     project::{CodeFileType, CodeFiles},
-    render_graph::shader::Shader,
+    render_graph::{compiled_render_graph::CompiledRenderGraph, shader::Shader},
     wgpu_util::BasicColorTextureFormat,
 };
 
@@ -565,6 +565,19 @@ impl RenderGraph {
                 }
             }
         }
+    }
+
+    pub fn compile(
+        &self,
+        screen_size: [u32; 2],
+        device: &wgpu::Device,
+    ) -> anyhow::Result<CompiledRenderGraph> {
+        CompiledRenderGraph::new(
+            &self.node_graph.graph,
+            &self.graph_state.shader_cache,
+            screen_size,
+            device,
+        )
     }
 
     pub fn shaders_iter(&self) -> impl Iterator<Item = (&Uuid, &Shader)> {

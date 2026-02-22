@@ -1,8 +1,7 @@
 use core::str;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::sync::Arc;
-
-use crate::wgpu_util::PipelineDatabase;
 
 const BLIT_SHADER_SRC: &str = "
 struct VertexOutput {
@@ -57,64 +56,43 @@ pub fn encode_blit(
     parameters: &BlitPassParameters,
     device: &wgpu::Device,
     command_encoder: &mut wgpu::CommandEncoder,
-    pipeline_database: &mut PipelineDatabase,
 ) {
-    let shader = pipeline_database.shader_from_src(device, BLIT_SHADER_SRC);
-    let pipeline = pipeline_database.render_pipeline(
-        device,
-        wgpu::RenderPipelineDescriptor {
-            label: Some(&format!("blit {:?}", parameters.target_format)),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(parameters.target_format.into())],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        },
-        || {
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("blit"),
-                bind_group_layouts: &[&device.create_bind_group_layout(
-                    &wgpu::BindGroupLayoutDescriptor {
-                        label: None,
-                        entries: &[
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 0,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Texture {
-                                    sample_type: wgpu::TextureSampleType::Float {
-                                        filterable: true,
-                                    },
-                                    view_dimension: wgpu::TextureViewDimension::D2,
-                                    multisampled: false,
-                                },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 1,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                                count: None,
-                            },
-                        ],
-                    },
-                )],
-                push_constant_ranges: &[],
+    let pipeline = BLIT_PIPELINE.with(|v| {
+        let mut v = v.borrow_mut();
+        if v.is_none() {
+            *v = Some({
+                let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("blit"),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(BLIT_SHADER_SRC)),
+                });
+
+                Arc::new(
+                    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                        label: Some(&format!("blit {:?}", parameters.target_format)),
+                        layout: None,
+                        vertex: wgpu::VertexState {
+                            module: &module,
+                            entry_point: Some("vs_main"),
+                            buffers: &[],
+                            compilation_options: Default::default(),
+                        },
+                        fragment: Some(wgpu::FragmentState {
+                            module: &module,
+                            entry_point: Some("fs_main"),
+                            compilation_options: Default::default(),
+                            targets: &[Some(parameters.target_format.into())],
+                        }),
+                        primitive: wgpu::PrimitiveState::default(),
+                        depth_stencil: None,
+                        multisample: wgpu::MultisampleState::default(),
+                        multiview: None,
+                        cache: None,
+                    }),
+                )
             })
-        },
-    );
+        }
+        v.as_ref().unwrap().clone()
+    });
 
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         mag_filter: wgpu::FilterMode::Linear,
