@@ -224,6 +224,7 @@ pub trait RenderPipeline<A>: 'static + Sized {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
+        egui_pass: &mut EguiPass,
         key_modifiers: &KeyModifiers,
         app: &mut A,
     );
@@ -502,6 +503,7 @@ impl<A, R: RenderPipeline<A>> winit::application::ApplicationHandler for Applica
                         &rp_state.context.device,
                         &rp_state.context.queue,
                         &mut egui_ctx,
+                        &mut rp_state.egui_pass,
                         &self.app.key_modifiers,
                         &mut self.app.user_app,
                     );

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     editor::Editor,
-    egui_util::KeyModifiers,
+    egui_util::{EguiPass, KeyModifiers},
     project::{CodeFileType, Project},
     render_graph::compiled_render_graph::CompiledRenderGraph,
     runtime::{Runtime, Static},
@@ -71,6 +71,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         egui_ctx: &mut egui::Context,
+        egui_pass: &mut EguiPass,
         key_modifiers: &KeyModifiers,
         app: &mut App,
     ) {
@@ -83,7 +84,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
         }
 
         app.editor
-            .ui(egui_ctx, &mut app.project, key_modifiers, device);
+            .ui(egui_ctx, egui_pass, &mut app.project, key_modifiers, device);
 
         if let Some(project) = &mut app.project {
             // TODO: cloning all sources here is slow
@@ -101,8 +102,18 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
             let resolution = [self.surface_config.width, self.surface_config.height];
             match rg.compile(resolution, device) {
                 Ok(compiled_rg) => {
-                    let encoder =
-                        compiled_rg.record_command_encoder(device, target_view, target_format);
+                    let (rg_target_view, rg_target_format) =
+                        if let Some(editor_viewport_texture) = app.editor.viewport_texture() {
+                            (editor_viewport_texture, wgpu::TextureFormat::Rgba16Float)
+                        } else {
+                            (target_view, target_format)
+                        };
+
+                    let encoder = compiled_rg.record_command_encoder(
+                        device,
+                        rg_target_view,
+                        rg_target_format,
+                    );
 
                     queue.submit(Some(encoder.finish()));
                 }

@@ -9,7 +9,7 @@ use crate::{
         },
         EditorDragPayload,
     },
-    egui_util::KeyModifiers,
+    egui_util::{EguiPass, KeyModifiers},
     project::Project,
 };
 
@@ -62,27 +62,30 @@ impl std::fmt::Display for Tab {
 }
 
 pub struct TabViewer<'a> {
+    egui_pass: &'a mut EguiPass,
     key_modifiers: &'a KeyModifiers,
     project: &'a mut Project,
     drag_payload: &'a mut Option<EditorDragPayload>,
     file_to_open: &'a mut Option<Uuid>,
     last_focussed_code_editor: &'a mut Option<TileId>,
 
-    viewport_texture: &'a mut Option<wgpu::Texture>,
+    viewport_texture: &'a mut Option<wgpu::TextureView>,
     device: &'a wgpu::Device,
 }
 
 impl<'a> TabViewer<'a> {
     pub fn new(
+        egui_pass: &'a mut EguiPass,
         key_modifiers: &'a KeyModifiers,
         project: &'a mut Project,
         drag_payload: &'a mut Option<EditorDragPayload>,
         file_to_open: &'a mut Option<Uuid>,
         last_focussed_code_editor: &'a mut Option<TileId>,
-        viewport_texture: &'a mut Option<wgpu::Texture>,
+        viewport_texture: &'a mut Option<wgpu::TextureView>,
         device: &'a wgpu::Device,
     ) -> Self {
         Self {
+            egui_pass,
             key_modifiers,
             project,
             drag_payload,
@@ -107,7 +110,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
     ) -> egui_tiles::UiResponse {
         match tab {
             Tab::Viewport(tab) => {
-                tab.ui(ui, self.viewport_texture, self.device);
+                tab.ui(ui, self.egui_pass, self.viewport_texture, self.device);
             }
             Tab::Console(tab) => {
                 tab.ui(ui, self.project);

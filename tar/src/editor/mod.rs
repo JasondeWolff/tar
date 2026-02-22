@@ -11,7 +11,7 @@ use crate::{
             render_graph::RenderGraphTab, viewport::ViewportTab, Tab, TabViewer,
         },
     },
-    egui_util::KeyModifiers,
+    egui_util::{EguiPass, KeyModifiers},
     project::Project,
 };
 
@@ -34,10 +34,10 @@ struct Tabs {
 }
 
 impl Tabs {
-    fn new(project: &Project) -> Self {
+    fn new(project: &Project, device: &wgpu::Device) -> Self {
         let mut tiles = Tiles::default();
 
-        let viewport_id = tiles.insert_pane(Tab::Viewport(ViewportTab::default()));
+        let viewport_id = tiles.insert_pane(Tab::Viewport(ViewportTab::new(device)));
         let render_graph_id = tiles.insert_pane(Tab::RenderGraph(RenderGraphTab::default()));
         let console_id = tiles.insert_pane(Tab::Console(ConsoleTab::default()));
         let file_explorer_id = tiles.insert_pane(Tab::FileExplorer(FileExplorerTab::default()));
@@ -155,7 +155,7 @@ pub struct Editor {
     tabs: Option<Tabs>,
     popups: HashMap<TypeId, Box<dyn Popup>>,
     drag_payload: Option<EditorDragPayload>,
-    viewport_texture: Option<wgpu::Texture>,
+    viewport_texture: Option<wgpu::TextureView>,
 }
 
 impl Default for Editor {
@@ -202,6 +202,7 @@ impl Editor {
     pub fn ui(
         &mut self,
         egui_ctx: &mut egui::Context,
+        egui_pass: &mut EguiPass,
         project: &mut Option<Project>,
         key_modifiers: &KeyModifiers,
         device: &wgpu::Device,
@@ -324,6 +325,7 @@ impl Editor {
 
                         tabs.tree.ui(
                             &mut TabViewer::new(
+                                egui_pass,
                                 key_modifiers,
                                 project,
                                 &mut self.drag_payload,
@@ -407,7 +409,7 @@ impl Editor {
                             }
                         }
                     } else {
-                        self.tabs = Some(Tabs::new(project));
+                        self.tabs = Some(Tabs::new(project, device));
                     }
                 }
             });
@@ -465,7 +467,7 @@ impl Editor {
         }
     }
 
-    pub fn viewport_texture(&self) -> &Option<wgpu::Texture> {
+    pub fn viewport_texture(&self) -> &Option<wgpu::TextureView> {
         &self.viewport_texture
     }
 }
