@@ -1,6 +1,7 @@
 use core::str;
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 const BLIT_SHADER_SRC: &str = "
@@ -49,7 +50,7 @@ pub struct BlitPassParameters<'a> {
 }
 
 thread_local! {
-    static BLIT_PIPELINE: RefCell<Option<Arc<wgpu::RenderPipeline>>> = const { RefCell::new(None) };
+    static BLIT_PIPELINES: RefCell<HashMap<wgpu::TextureFormat, Arc<wgpu::RenderPipeline>>> = RefCell::new(HashMap::new());
 }
 
 pub fn encode_blit(
@@ -57,10 +58,10 @@ pub fn encode_blit(
     device: &wgpu::Device,
     command_encoder: &mut wgpu::CommandEncoder,
 ) {
-    let pipeline = BLIT_PIPELINE.with(|v| {
-        let mut v = v.borrow_mut();
-        if v.is_none() {
-            *v = Some({
+    let pipeline = BLIT_PIPELINES.with(|v| {
+        let mut map = v.borrow_mut();
+        map.entry(parameters.target_format)
+            .or_insert_with(|| {
                 let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("blit"),
                     source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(BLIT_SHADER_SRC)),
@@ -90,8 +91,7 @@ pub fn encode_blit(
                     }),
                 )
             })
-        }
-        v.as_ref().unwrap().clone()
+            .clone()
     });
 
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
