@@ -82,7 +82,8 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
             );
         }
 
-        app.editor.ui(egui_ctx, &mut app.project, key_modifiers);
+        app.editor
+            .ui(egui_ctx, &mut app.project, key_modifiers, device);
 
         if let Some(project) = &mut app.project {
             // TODO: cloning all sources here is slow

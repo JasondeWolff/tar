@@ -67,6 +67,9 @@ pub struct TabViewer<'a> {
     drag_payload: &'a mut Option<EditorDragPayload>,
     file_to_open: &'a mut Option<Uuid>,
     last_focussed_code_editor: &'a mut Option<TileId>,
+
+    viewport_texture: &'a mut Option<wgpu::Texture>,
+    device: &'a wgpu::Device,
 }
 
 impl<'a> TabViewer<'a> {
@@ -76,6 +79,8 @@ impl<'a> TabViewer<'a> {
         drag_payload: &'a mut Option<EditorDragPayload>,
         file_to_open: &'a mut Option<Uuid>,
         last_focussed_code_editor: &'a mut Option<TileId>,
+        viewport_texture: &'a mut Option<wgpu::Texture>,
+        device: &'a wgpu::Device,
     ) -> Self {
         Self {
             key_modifiers,
@@ -83,6 +88,8 @@ impl<'a> TabViewer<'a> {
             drag_payload,
             file_to_open,
             last_focussed_code_editor,
+            viewport_texture,
+            device,
         }
     }
 }
@@ -100,7 +107,7 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
     ) -> egui_tiles::UiResponse {
         match tab {
             Tab::Viewport(tab) => {
-                tab.ui(ui);
+                tab.ui(ui, self.viewport_texture, self.device);
             }
             Tab::Console(tab) => {
                 tab.ui(ui, self.project);
