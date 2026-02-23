@@ -669,7 +669,7 @@ impl RenderGraphTab {
         ui: &mut egui::Ui,
         project: &mut Project,
         drag_payload: &mut Option<EditorDragPayload>,
-    ) {
+    ) -> bool {
         let code_file_names: std::collections::HashMap<Uuid, (CodeFileType, std::path::PathBuf)> =
             project
                 .code_files
@@ -679,6 +679,6 @@ impl RenderGraphTab {
 
         project
             .render_graph_mut()
-            .ui(ui, code_file_names, drag_payload);
+            .ui(ui, code_file_names, drag_payload)
     }
 }

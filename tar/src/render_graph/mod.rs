@@ -1,4 +1,4 @@
-use std::{collections::HashMap, num::NonZeroU32, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
@@ -179,7 +179,6 @@ pub enum RgValueType {
     TextureFormat(BasicColorTextureFormat),
     TextureUsage(TextureUsage),
 
-    //ScreenTex(ScreenTex),
     Tex2D(Tex2D),
     Tex2DArray(Tex2DArray),
     Tex3D(Tex3D),
@@ -250,13 +249,6 @@ impl RgValueType {
             _ => bail!("{:?} is not of type Bool", self),
         }
     }
-
-    // pub fn as_screen_tex(&self) -> anyhow::Result<&ScreenTex> {
-    //     match self {
-    //         Self::ScreenTex(result) => Ok(result),
-    //         _ => bail!("{:?} is not of type ScreenTex", self),
-    //     }
-    // }
 
     pub fn as_tex2d(&self) -> anyhow::Result<&Tex2D> {
         match self {
@@ -433,7 +425,7 @@ impl RenderGraph {
         ui: &mut egui::Ui,
         code_file_names: HashMap<Uuid, (CodeFileType, PathBuf)>,
         drag_payload: &mut Option<EditorDragPayload>,
-    ) {
+    ) -> bool {
         self.graph_state.editor = Some(RgEditorGraphState {
             code_file_names,
             drag_payload: std::mem::take(drag_payload),
@@ -450,14 +442,25 @@ impl RenderGraph {
             *drag_payload = editor.drag_payload;
         }
 
+        let mut dirty = false;
+
         for node_response in graph_response.node_responses {
-            if let NodeResponse::User(user_event) = node_response {
-                match user_event {
+            match node_response {
+                NodeResponse::User(user_event) => match user_event {
                     MyResponse::SetInspectNode(node) => self.graph_state.inspect_node = Some(node),
                     MyResponse::ClearInspectNode => self.graph_state.inspect_node = None,
+                },
+                NodeResponse::ConnectEventEnded { .. }
+                | NodeResponse::CreatedNode(_)
+                | NodeResponse::DeleteNodeFull { .. }
+                | NodeResponse::DisconnectEvent { .. } => {
+                    dirty = true;
                 }
+                _ => {}
             }
         }
+
+        dirty
     }
 
     /// Synchronize the shader cache with the current code file sources.
@@ -466,7 +469,7 @@ impl RenderGraph {
         &mut self,
         code_sources: &[(Uuid, String)],
         device: &wgpu::Device,
-    ) {
+    ) -> bool {
         let valid_ids: std::collections::HashSet<Uuid> =
             code_sources.iter().map(|(id, _)| *id).collect();
 
@@ -475,16 +478,23 @@ impl RenderGraph {
             .shader_cache
             .retain(|id, _| valid_ids.contains(id));
 
+        let mut dirty = false;
+
         // Add or update shaders
         for (id, source) in code_sources {
             if let Some(shader) = self.graph_state.shader_cache.get_mut(id) {
-                shader.update_source(source.to_owned(), device);
+                if shader.update_source(source.to_owned(), device) {
+                    dirty = true;
+                }
             } else {
                 self.graph_state
                     .shader_cache
                     .insert(*id, Shader::new(source.to_owned(), device));
+                dirty = true;
             }
         }
+
+        dirty
     }
 
     /// For each GraphicsPass node, sync its dynamic input ports to match the

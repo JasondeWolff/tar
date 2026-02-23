@@ -44,7 +44,7 @@ impl ViewportTab {
         &mut self,
         ui: &mut egui::Ui,
         egui_pass: &mut EguiPass,
-        viewport_texture: &mut Option<wgpu::TextureView>,
+        viewport_texture: &mut Option<(wgpu::TextureView, [u32; 2])>,
         device: &wgpu::Device,
     ) {
         let size = ui.available_size();
@@ -68,7 +68,7 @@ impl ViewportTab {
             self.viewport_texture_ui_id =
                 egui_pass.register_native_texture(device, &texture_view, wgpu::FilterMode::Linear);
 
-            *viewport_texture = Some(texture_view);
+            *viewport_texture = Some((texture_view, [width, height]));
         }
 
         ui.image((self.viewport_texture_ui_id, size));

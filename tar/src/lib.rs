@@ -35,6 +35,7 @@ impl App {
 
 pub struct RenderPipeline {
     surface_config: wgpu::SurfaceConfiguration,
+    compiled_rg: Option<CompiledRenderGraph>,
 }
 
 impl runtime::RenderPipeline<App> for RenderPipeline {
@@ -52,7 +53,10 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
         _queue: &wgpu::Queue,
         _window: Arc<winit::window::Window>,
     ) -> Self {
-        Self { surface_config }
+        Self {
+            surface_config,
+            compiled_rg: None,
+        }
     }
 
     fn resize(
@@ -83,8 +87,15 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
             );
         }
 
-        app.editor
-            .ui(egui_ctx, egui_pass, &mut app.project, key_modifiers, device);
+        let mut render_graph_dirty = false;
+        app.editor.ui(
+            egui_ctx,
+            egui_pass,
+            &mut app.project,
+            key_modifiers,
+            &mut render_graph_dirty,
+            device,
+        );
 
         if let Some(project) = &mut app.project {
             // TODO: cloning all sources here is slow
@@ -96,31 +107,61 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
                 .collect();
 
             let rg = project.render_graph_mut();
-            rg.sync_graphics_shaders(&code_sources, device);
-            rg.sync_dynamic_node_inputs();
+            let shaders_dirty = rg.sync_graphics_shaders(&code_sources, device);
 
-            let resolution = [self.surface_config.width, self.surface_config.height];
-            match rg.compile(resolution, device) {
-                Ok(compiled_rg) => {
-                    let (rg_target_view, rg_target_format) =
-                        if let Some(editor_viewport_texture) = app.editor.viewport_texture() {
-                            (editor_viewport_texture, wgpu::TextureFormat::Rgba16Float)
-                        } else {
-                            (target_view, target_format)
-                        };
+            if shaders_dirty {
+                rg.sync_dynamic_node_inputs();
+            }
 
-                    let encoder = compiled_rg.record_command_encoder(
-                        device,
-                        rg_target_view,
-                        rg_target_format,
-                    );
+            let (rg_target_view, rg_target_format, rg_target_resolution) = if let Some((
+                editor_viewport_texture,
+                resolution,
+            )) =
+                app.editor.viewport_texture()
+            {
+                (
+                    editor_viewport_texture,
+                    wgpu::TextureFormat::Rgba16Float,
+                    *resolution,
+                )
+            } else {
+                (
+                    target_view,
+                    target_format,
+                    [self.surface_config.width, self.surface_config.height],
+                )
+            };
 
-                    queue.submit(Some(encoder.finish()));
+            let viewport_resolution_dirty = if let Some(compiled_rg) = &self.compiled_rg {
+                *compiled_rg.screen_size() != rg_target_resolution
+            } else {
+                false
+            };
+
+            if shaders_dirty || render_graph_dirty || viewport_resolution_dirty {
+                log::info!(
+                    "RECOMPILE RG shaders={} rg={} resolution={}!",
+                    shaders_dirty,
+                    render_graph_dirty,
+                    viewport_resolution_dirty
+                );
+
+                match rg.compile(rg_target_resolution, device) {
+                    Ok(compiled_rg) => {
+                        self.compiled_rg = Some(compiled_rg);
+                    }
+                    Err(e) => {
+                        // TODO: send to console tab
+                        log::warn!("Failed to compile rg: {}", e);
+                    }
                 }
-                Err(e) => {
-                    // TODO: send to console tab
-                    log::warn!("Failed to compile rg: {}", e);
-                }
+            }
+
+            if let Some(compiled_rg) = &self.compiled_rg {
+                let encoder =
+                    compiled_rg.record_command_encoder(device, rg_target_view, rg_target_format);
+
+                queue.submit(Some(encoder.finish()));
             }
         }
     }

@@ -36,6 +36,8 @@ struct CompiledGraphicsPass {
 }
 
 pub struct CompiledRenderGraph {
+    screen_size: [u32; 2],
+
     buffers: Vec<wgpu::Buffer>,
     textures: Vec<wgpu::Texture>,
     texture_views: Vec<wgpu::TextureView>,
@@ -537,12 +539,17 @@ impl CompiledRenderGraph {
         let display_output = display_output.ok_or(anyhow!("No display output"))?;
 
         Ok(Self {
+            screen_size,
             buffers,
             textures,
             texture_views,
             graphics_passes,
             display_output,
         })
+    }
+
+    pub fn screen_size(&self) -> &[u32; 2] {
+        &self.screen_size
     }
 
     pub fn record_command_encoder(

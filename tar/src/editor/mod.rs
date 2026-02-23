@@ -155,7 +155,7 @@ pub struct Editor {
     tabs: Option<Tabs>,
     popups: HashMap<TypeId, Box<dyn Popup>>,
     drag_payload: Option<EditorDragPayload>,
-    viewport_texture: Option<wgpu::TextureView>,
+    viewport_texture: Option<(wgpu::TextureView, [u32; 2])>,
 }
 
 impl Default for Editor {
@@ -205,6 +205,7 @@ impl Editor {
         egui_pass: &mut EguiPass,
         project: &mut Option<Project>,
         key_modifiers: &KeyModifiers,
+        render_graph_dirty: &mut bool,
         device: &wgpu::Device,
     ) {
         egui::TopBottomPanel::top("top_bar").show(egui_ctx, |ui| {
@@ -331,6 +332,7 @@ impl Editor {
                                 &mut self.drag_payload,
                                 &mut file_to_open,
                                 &mut tabs.last_focussed_code_editor,
+                                render_graph_dirty,
                                 &mut self.viewport_texture,
                                 device,
                             ),
@@ -467,7 +469,7 @@ impl Editor {
         }
     }
 
-    pub fn viewport_texture(&self) -> &Option<wgpu::TextureView> {
+    pub fn viewport_texture(&self) -> &Option<(wgpu::TextureView, [u32; 2])> {
         &self.viewport_texture
     }
 }

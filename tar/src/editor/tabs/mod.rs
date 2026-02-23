@@ -68,8 +68,9 @@ pub struct TabViewer<'a> {
     drag_payload: &'a mut Option<EditorDragPayload>,
     file_to_open: &'a mut Option<Uuid>,
     last_focussed_code_editor: &'a mut Option<TileId>,
+    render_graph_dirty: &'a mut bool,
 
-    viewport_texture: &'a mut Option<wgpu::TextureView>,
+    viewport_texture: &'a mut Option<(wgpu::TextureView, [u32; 2])>,
     device: &'a wgpu::Device,
 }
 
@@ -81,7 +82,8 @@ impl<'a> TabViewer<'a> {
         drag_payload: &'a mut Option<EditorDragPayload>,
         file_to_open: &'a mut Option<Uuid>,
         last_focussed_code_editor: &'a mut Option<TileId>,
-        viewport_texture: &'a mut Option<wgpu::TextureView>,
+        render_graph_dirty: &'a mut bool,
+        viewport_texture: &'a mut Option<(wgpu::TextureView, [u32; 2])>,
         device: &'a wgpu::Device,
     ) -> Self {
         Self {
@@ -91,6 +93,7 @@ impl<'a> TabViewer<'a> {
             drag_payload,
             file_to_open,
             last_focussed_code_editor,
+            render_graph_dirty,
             viewport_texture,
             device,
         }
@@ -119,7 +122,9 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui, self.project, self.drag_payload, self.file_to_open);
             }
             Tab::RenderGraph(tab) => {
-                tab.ui(ui, self.project, self.drag_payload);
+                if tab.ui(ui, self.project, self.drag_payload) {
+                    *self.render_graph_dirty = true;
+                }
             }
             Tab::CodeEditor(tab) => {
                 tab.ui(ui, self.project, self.key_modifiers);
