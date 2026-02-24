@@ -1096,21 +1096,54 @@ where
                 ui.painter()
                     .rect_filled(port_rect, 5.0 * pan_zoom.zoom, port_color);
             } else {
-                ui.painter().circle(
-                    port_rect.center(),
-                    (PORT_DIAMETER / 2.0) * pan_zoom.zoom,
-                    port_color,
-                    Stroke::NONE,
-                );
+                let consumer = match param_id {
+                    AnyParameterId::Input(id) => graph.get_input(id).consumer,
+                    _ => false,
+                };
 
-                if let AnyParameterId::Input(_) = param_id {
-                    if connections == 0 {
-                        ui.painter().circle(
-                            port_rect.center(),
-                            (PORT_DIAMETER / 2.0) * 0.5 * pan_zoom.zoom,
-                            port_color.lighten(0.25),
-                            Stroke::NONE,
-                        );
+                if consumer {
+                    let center = port_rect.center();
+                    let r = (PORT_DIAMETER / 2.0) * pan_zoom.zoom;
+                    let tri = vec![
+                        center + vec2(-r, -r),
+                        center + vec2(-r, r),
+                        center + vec2(r, 0.0),
+                    ];
+                    ui.painter()
+                        .add(Shape::convex_polygon(tri, port_color, Stroke::NONE));
+
+                    if let AnyParameterId::Input(_) = param_id {
+                        if connections == 0 {
+                            let r_inner = r * 0.5;
+                            let inner_tri = vec![
+                                center + vec2(-r_inner, -r_inner),
+                                center + vec2(-r_inner, r_inner),
+                                center + vec2(r_inner, 0.0),
+                            ];
+                            ui.painter().add(Shape::convex_polygon(
+                                inner_tri,
+                                port_color.lighten(0.25),
+                                Stroke::NONE,
+                            ));
+                        }
+                    }
+                } else {
+                    ui.painter().circle(
+                        port_rect.center(),
+                        (PORT_DIAMETER / 2.0) * pan_zoom.zoom,
+                        port_color,
+                        Stroke::NONE,
+                    );
+
+                    if let AnyParameterId::Input(_) = param_id {
+                        if connections == 0 {
+                            ui.painter().circle(
+                                port_rect.center(),
+                                (PORT_DIAMETER / 2.0) * 0.5 * pan_zoom.zoom,
+                                port_color.lighten(0.25),
+                                Stroke::NONE,
+                            );
+                        }
                     }
                 }
             }
