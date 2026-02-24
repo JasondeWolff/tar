@@ -525,9 +525,9 @@ impl RenderGraph {
                 .unwrap_or_default();
 
             // Build desired input ports from bindings (skip Samplers - auto-injected)
-            let desired: Vec<(String, RgDataType)> = bindings
+            let desired: Vec<(String, RgDataType, bool)> = bindings
                 .iter()
-                .map(|b| (b.name.clone(), b.resource_type.clone()))
+                .map(|b| (b.name.clone(), b.resource_type.clone(), b.readonly))
                 .collect();
 
             // Names of static inputs that should never be removed
@@ -543,13 +543,13 @@ impl RenderGraph {
 
             // Remove ports not in desired set
             for (name, input_id) in &current_dynamic {
-                if !desired.iter().any(|(n, _)| n == name) {
+                if !desired.iter().any(|(n, _, _)| n == name) {
                     graph.remove_input_param(*input_id);
                 }
             }
 
             // Add ports in desired set not currently present
-            for (name, data_type) in &desired {
+            for (name, data_type, readonly) in &desired {
                 let exists = graph[node_id].inputs.iter().any(|(n, _)| n == name);
                 if !exists {
                     let (dt, vt) = match data_type {
@@ -564,13 +564,16 @@ impl RenderGraph {
                         }
                         _ => continue,
                     };
+
+                    let consumer = !readonly;
+
                     graph.add_input_param(
                         node_id,
                         name.clone(),
                         dt,
                         vt,
                         InputParamKind::ConnectionOnly,
-                        true,
+                        consumer,
                         true,
                     );
                 }

@@ -1,6 +1,7 @@
 use wgpu::naga::{
     front::wgsl,
     valid::{Capabilities, ValidationFlags, Validator},
+    StorageAccess,
 };
 
 use crate::render_graph::RgDataType;
@@ -11,6 +12,7 @@ pub struct ShaderBinding {
     pub binding: u32,
     pub name: String,
     pub resource_type: RgDataType,
+    pub readonly: bool,
 }
 
 pub struct Shader {
@@ -73,8 +75,20 @@ impl Shader {
         // Extract bindings from the validated module
         for (_handle, global) in module.global_variables.iter() {
             if let Some(binding) = &global.binding {
+                let mut readonly = true;
+
                 let resource_type = match module.types[global.ty].inner {
-                    wgpu::naga::TypeInner::Image { dim, arrayed, .. } => {
+                    wgpu::naga::TypeInner::Image {
+                        dim,
+                        arrayed,
+                        class,
+                    } => {
+                        if let wgpu::naga::ImageClass::Storage { access, .. } = class {
+                            if access == StorageAccess::STORE {
+                                readonly = false;
+                            }
+                        }
+
                         if !arrayed {
                             match dim {
                                 wgpu::naga::ImageDimension::D1 => RgDataType::UInt,
@@ -95,7 +109,13 @@ impl Shader {
                     wgpu::naga::TypeInner::Struct { .. } | wgpu::naga::TypeInner::Array { .. } => {
                         match global.space {
                             wgpu::naga::AddressSpace::Uniform => RgDataType::Buffer,
-                            wgpu::naga::AddressSpace::Storage { .. } => RgDataType::Buffer,
+                            wgpu::naga::AddressSpace::Storage { access } => {
+                                if access == StorageAccess::STORE {
+                                    readonly = false;
+                                }
+
+                                RgDataType::Buffer
+                            }
                             _ => RgDataType::UInt,
                         }
                     }
@@ -110,6 +130,7 @@ impl Shader {
                         .clone()
                         .unwrap_or_else(|| "unnamed_binding".to_string()),
                     resource_type,
+                    readonly,
                 });
             }
         }

@@ -1178,19 +1178,21 @@ where
                         match (param_id, origin_param) {
                             (AnyParameterId::Input(input), AnyParameterId::Output(output))
                             | (AnyParameterId::Output(output), AnyParameterId::Input(input)) => {
-                                let input_hook =
-                                    nearest_hook.unwrap_or(graph.connections(input).len());
+                                if graph.can_connect(output, input) {
+                                    let input_hook =
+                                        nearest_hook.unwrap_or(graph.connections(input).len());
 
-                                if ui.input(|i| i.pointer.any_released()) {
-                                    responses.push(NodeResponse::ConnectEventEnded {
-                                        output,
-                                        input,
-                                        input_hook,
-                                    });
-                                } else if wide_port && !port_full {
-                                    // move connections below the in-progress one to a lower position
-                                    for k in input_hook..graph.connections(input).len() {
-                                        conn_locations.get_mut(&input).unwrap()[k].y += 7.5;
+                                    if ui.input(|i| i.pointer.any_released()) {
+                                        responses.push(NodeResponse::ConnectEventEnded {
+                                            output,
+                                            input,
+                                            input_hook,
+                                        });
+                                    } else if wide_port && !port_full {
+                                        // move connections below the in-progress one to a lower position
+                                        for k in input_hook..graph.connections(input).len() {
+                                            conn_locations.get_mut(&input).unwrap()[k].y += 7.5;
+                                        }
                                     }
                                 }
                             }

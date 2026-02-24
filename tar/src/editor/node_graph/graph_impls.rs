@@ -167,7 +167,6 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
 
         let input_param = self.get_input(input);
 
-        let consumer = input_param.consumer;
         let max_connections = input_param
             .max_connections
             .map(NonZeroU32::get)
@@ -181,9 +180,11 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
             return;
         }
 
-        // Check if the output we're trying to connect is not consumed
-        // - Loop over inputs of output
-        // -- If any input of this output is consumer, the output has already been consumed
+        // Enforce consumer constraint: a consumed output accepts no new connections,
+        // and a consumer input requires the output to have no existing connections.
+        if !self.can_connect(output, input) {
+            return;
+        }
 
         if self.connections[input].len() == max_connections {
             // if full, replace the connected output
@@ -192,6 +193,25 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
             // otherwise, insert at a selected position
             self.connections[input].insert(pos, output);
         }
+    }
+
+    /// Returns `true` if `output` is connected to at least one consumer input.
+    pub fn is_output_consumed(&self, output: OutputId) -> bool {
+        self.iter_connections()
+            .any(|(input, o)| o == output && self.get_input(input).consumer)
+    }
+
+    /// Returns `true` if connecting `output` → `input` is allowed under consumer semantics.
+    pub fn can_connect(&self, output: OutputId, input: InputId) -> bool {
+        // If output is already consumed, no further connections allowed
+        if self.is_output_consumed(output) {
+            return false;
+        }
+        // If this input is a consumer, output must have zero existing connections
+        if self.get_input(input).consumer {
+            return !self.iter_connections().any(|(_, o)| o == output);
+        }
+        true
     }
 
     pub fn iter_connection_groups(&self) -> impl Iterator<Item = (InputId, Vec<OutputId>)> + '_ {
