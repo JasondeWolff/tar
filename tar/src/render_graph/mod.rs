@@ -571,6 +571,7 @@ impl RenderGraph {
                         vt,
                         InputParamKind::ConnectionOnly,
                         true,
+                        true,
                     );
                 }
             }

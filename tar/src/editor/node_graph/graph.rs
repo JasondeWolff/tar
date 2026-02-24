@@ -50,6 +50,9 @@ pub struct InputParam<DataType, ValueType> {
     pub value: ValueType,
     /// The input kind. See [`InputParamKind`]
     pub kind: InputParamKind,
+    /// Does this input consume the connected output param? An output can be connected to
+    /// multiple non-consumers or ONE consumer.
+    pub consumer: bool,
     /// Back-reference to the node containing this parameter.
     pub node: NodeId,
     /// How many connections can be made with this input. `None` means no limit.

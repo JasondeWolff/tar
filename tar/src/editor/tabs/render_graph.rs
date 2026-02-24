@@ -212,6 +212,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::UInt(0),
                 InputParamKind::ConstantOnly,
                 true,
+                true,
             );
         };
         let input_uint2 = |graph: &mut RgGraph, name: &str| {
@@ -221,6 +222,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgDataType::UInt2,
                 RgValueType::UInt2([0; 2]),
                 InputParamKind::ConstantOnly,
+                true,
                 true,
             );
         };
@@ -232,6 +234,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::UInt3([0; 3]),
                 InputParamKind::ConstantOnly,
                 true,
+                true,
             );
         };
         let input_float = |graph: &mut RgGraph, name: &str| {
@@ -242,6 +245,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::Float(0.0),
                 InputParamKind::ConstantOnly,
                 true,
+                true,
             );
         };
         let input_bool = |graph: &mut RgGraph, name: &str| {
@@ -251,6 +255,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgDataType::Bool,
                 RgValueType::Bool(true),
                 InputParamKind::ConstantOnly,
+                true,
                 true,
             );
         };
@@ -263,6 +268,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::ScreenTexResolution(ScreenTexResolution::default()),
                 InputParamKind::ConstantOnly,
                 true,
+                true,
             );
         };
 
@@ -273,6 +279,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgDataType::TextureFormat,
                 RgValueType::TextureFormat(BasicColorTextureFormat::default()),
                 InputParamKind::ConstantOnly,
+                true,
                 true,
             );
         };
@@ -285,6 +292,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::TextureUsage(TextureUsage::default()),
                 InputParamKind::ConstantOnly,
                 true,
+                true,
             );
         };
 
@@ -296,6 +304,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::Tex2D(Tex2D::default()),
                 InputParamKind::ConnectionOnly,
                 true,
+                true,
             );
         };
         let input_tex_2d_array = |graph: &mut RgGraph, name: &str| {
@@ -305,6 +314,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgDataType::Tex2DArray,
                 RgValueType::Tex2DArray(Tex2DArray::default()),
                 InputParamKind::ConnectionOnly,
+                true,
                 true,
             );
         };
@@ -316,6 +326,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgValueType::Tex3D(Tex3D::default()),
                 InputParamKind::ConnectionOnly,
                 true,
+                true,
             );
         };
         let input_code_file = |graph: &mut RgGraph, name: &str| {
@@ -325,6 +336,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
                 RgDataType::CodeFile,
                 RgValueType::CodeFile(None),
                 InputParamKind::ConstantOnly,
+                true,
                 true,
             );
         };
@@ -677,8 +689,16 @@ impl RenderGraphTab {
                 .map(|(id, file)| (*id, (file.ty(), file.relative_path().clone())))
                 .collect();
 
-        project
+        let dirty = project
             .render_graph_mut()
-            .ui(ui, code_file_names, drag_payload)
+            .ui(ui, code_file_names, drag_payload);
+
+        if dirty {
+            if let Err(e) = project.save() {
+                log::warn!("Failed to save project: {}", e);
+            }
+        }
+
+        dirty
     }
 }

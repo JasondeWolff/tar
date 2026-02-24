@@ -107,12 +107,15 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
                 .collect();
 
             let rg = project.render_graph_mut();
-            let shaders_dirty = rg.sync_graphics_shaders(&code_sources, device);
 
+            // Update all shaders and retrieve if there are any dirty shaders
+            let shaders_dirty = rg.sync_graphics_shaders(&code_sources, device);
             if shaders_dirty {
+                // If there were dirty shaders we need to update the dynamic node inputs
                 rg.sync_dynamic_node_inputs();
             }
 
+            // Get the output texture, format and its resolution we want to render to
             let (rg_target_view, rg_target_format, rg_target_resolution) = if let Some((
                 editor_viewport_texture,
                 resolution,
@@ -132,12 +135,14 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
                 )
             };
 
+            // Check if the resolution has changed compared to what the graph was compiled with
             let viewport_resolution_dirty = if let Some(compiled_rg) = &self.compiled_rg {
                 *compiled_rg.screen_size() != rg_target_resolution
             } else {
                 false
             };
 
+            // If any of the shaders are dirty, the graph itself or the target resolution, we recompile
             if shaders_dirty || render_graph_dirty || viewport_resolution_dirty {
                 log::info!(
                     "RECOMPILE RG shaders={} rg={} resolution={}!",
@@ -148,6 +153,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
 
                 match rg.compile(rg_target_resolution, device) {
                     Ok(compiled_rg) => {
+                        // Cache the compiled graph when succesful
                         self.compiled_rg = Some(compiled_rg);
                     }
                     Err(e) => {
@@ -157,6 +163,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
                 }
             }
 
+            // Execute the render graph
             if let Some(compiled_rg) = &self.compiled_rg {
                 let encoder =
                     compiled_rg.record_command_encoder(device, rg_target_view, rg_target_format);

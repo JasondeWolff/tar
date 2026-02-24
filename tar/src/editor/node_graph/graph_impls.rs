@@ -42,6 +42,7 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
         typ: DataType,
         value: ValueType,
         kind: InputParamKind,
+        consumer: bool,
         max_connections: Option<NonZeroU32>,
         shown_inline: bool,
     ) -> InputId {
@@ -50,6 +51,7 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
             typ,
             value,
             kind,
+            consumer,
             node: node_id,
             max_connections,
             shown_inline,
@@ -58,6 +60,7 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
         input_id
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_input_param(
         &mut self,
         node_id: NodeId,
@@ -65,6 +68,7 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
         typ: DataType,
         value: ValueType,
         kind: InputParamKind,
+        consumer: bool,
         shown_inline: bool,
     ) -> InputId {
         self.add_wide_input_param(
@@ -73,6 +77,7 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
             typ,
             value,
             kind,
+            consumer,
             NonZeroU32::new(1),
             shown_inline,
         )
@@ -160,11 +165,14 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
             self.connections.insert(input, Vec::default());
         }
 
-        let max_connections = self
-            .get_input(input)
+        let input_param = self.get_input(input);
+
+        let consumer = input_param.consumer;
+        let max_connections = input_param
             .max_connections
             .map(NonZeroU32::get)
             .unwrap_or(u32::MAX) as usize;
+
         let already_in = self.connections[input].contains(&output);
 
         // connecting twice to the same port is a no-op
@@ -172,6 +180,10 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
         if already_in {
             return;
         }
+
+        // Check if the output we're trying to connect is not consumed
+        // - Loop over inputs of output
+        // -- If any input of this output is consumer, the output has already been consumed
 
         if self.connections[input].len() == max_connections {
             // if full, replace the connected output
