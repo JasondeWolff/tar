@@ -1103,25 +1103,24 @@ where
 
                 if consumer {
                     let center = port_rect.center();
-                    let r = (PORT_DIAMETER / 2.0) * pan_zoom.zoom;
-                    let tri = vec![
-                        center + vec2(-r, -r),
-                        center + vec2(-r, r),
-                        center + vec2(r, 0.0),
-                    ];
+                    let r = (PORT_DIAMETER / 2.0) * 1.1 * pan_zoom.zoom;
+                    // Equilateral triangle pointing right, circumscribed in radius r.
+                    // Vertices at angles 0°, 120°, 240° (sin60 = √3/2).
+                    let sin60 = 3f32.sqrt() / 2.0;
+                    let make_tri = |radius: f32| {
+                        vec![
+                            center + vec2(radius, 0.0),
+                            center + vec2(-radius * 0.5, -radius * sin60),
+                            center + vec2(-radius * 0.5, radius * sin60),
+                        ]
+                    };
                     ui.painter()
-                        .add(Shape::convex_polygon(tri, port_color, Stroke::NONE));
+                        .add(Shape::convex_polygon(make_tri(r), port_color, Stroke::NONE));
 
                     if let AnyParameterId::Input(_) = param_id {
                         if connections == 0 {
-                            let r_inner = r * 0.5;
-                            let inner_tri = vec![
-                                center + vec2(-r_inner, -r_inner),
-                                center + vec2(-r_inner, r_inner),
-                                center + vec2(r_inner, 0.0),
-                            ];
                             ui.painter().add(Shape::convex_polygon(
-                                inner_tri,
+                                make_tri(r * 0.4),
                                 port_color.lighten(0.25),
                                 Stroke::NONE,
                             ));
