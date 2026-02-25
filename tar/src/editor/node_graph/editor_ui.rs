@@ -1101,6 +1101,7 @@ where
                     _ => false,
                 };
 
+                // Consumer nodes are drawn as a triangle shape, non consumers as a circle
                 if consumer {
                     let center = port_rect.center();
                     let r = (PORT_DIAMETER / 2.0) * 1.1 * pan_zoom.zoom;

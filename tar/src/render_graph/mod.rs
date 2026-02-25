@@ -449,6 +449,7 @@ impl RenderGraph {
                 NodeResponse::User(user_event) => match user_event {
                     MyResponse::SetInspectNode(node) => self.graph_state.inspect_node = Some(node),
                     MyResponse::ClearInspectNode => self.graph_state.inspect_node = None,
+                    MyResponse::ValueChanged => dirty = true,
                 },
                 NodeResponse::ConnectEventEnded { .. }
                 | NodeResponse::CreatedNode(_)

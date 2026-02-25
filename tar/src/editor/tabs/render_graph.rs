@@ -89,6 +89,7 @@ use crate::{
 pub enum MyResponse {
     SetInspectNode(NodeId),
     ClearInspectNode,
+    ValueChanged,
 }
 
 // =========== Then, you need to implement some traits ============
@@ -452,45 +453,47 @@ impl WidgetValueTrait for RgValueType {
         user_state: &mut RgGraphState,
         _node_data: &RgNodeData,
     ) -> Vec<MyResponse> {
+        let mut dirty = false;
+
         // This trait is used to tell the library which UI to display for the
         // inline parameter widgets.
         match self {
             Self::UInt(value) => {
                 ui.horizontal(|ui| {
                     ui.label(param_name);
-                    ui.add(egui::DragValue::new(value));
+                    dirty = dirty || ui.add(egui::DragValue::new(value)).changed();
                 });
             }
             Self::UInt2(value) => {
                 ui.label(param_name);
                 ui.horizontal(|ui| {
                     ui.label("x");
-                    ui.add(egui::DragValue::new(&mut value[0]));
+                    dirty = dirty || ui.add(egui::DragValue::new(&mut value[0])).changed();
                     ui.label("y");
-                    ui.add(egui::DragValue::new(&mut value[1]));
+                    dirty = dirty || ui.add(egui::DragValue::new(&mut value[1])).changed();
                 });
             }
             Self::UInt3(value) => {
                 ui.label(param_name);
                 ui.horizontal(|ui| {
                     ui.label("x");
-                    ui.add(egui::DragValue::new(&mut value[0]));
+                    dirty = dirty || ui.add(egui::DragValue::new(&mut value[0])).changed();
                     ui.label("y");
-                    ui.add(egui::DragValue::new(&mut value[1]));
+                    dirty = dirty || ui.add(egui::DragValue::new(&mut value[1])).changed();
                     ui.label("z");
-                    ui.add(egui::DragValue::new(&mut value[2]));
+                    dirty = dirty || ui.add(egui::DragValue::new(&mut value[2])).changed();
                 });
             }
             Self::Float(value) => {
                 ui.horizontal(|ui| {
                     ui.label(param_name);
-                    ui.add(egui::DragValue::new(value));
+                    dirty = dirty || ui.add(egui::DragValue::new(value)).changed();
                 });
             }
             Self::Bool(value) => {
                 ui.horizontal(|ui| {
                     ui.label(param_name);
-                    ui.add(egui::Checkbox::new(value, ""));
+                    dirty = dirty || ui.add(egui::Checkbox::new(value, "")).changed();
                 });
             }
             Self::ScreenTexResolution(value) => {
@@ -500,7 +503,10 @@ impl WidgetValueTrait for RgValueType {
                         .selected_text(value.to_string())
                         .show_ui(ui, |ui| {
                             for variant in ScreenTexResolution::iter() {
-                                ui.selectable_value(value, variant, variant.to_string());
+                                dirty = dirty
+                                    || ui
+                                        .selectable_value(value, variant, variant.to_string())
+                                        .changed();
                             }
                         });
                 });
@@ -512,7 +518,10 @@ impl WidgetValueTrait for RgValueType {
                         .selected_text(value.to_string())
                         .show_ui(ui, |ui| {
                             for variant in BasicColorTextureFormat::iter() {
-                                ui.selectable_value(value, variant, variant.to_string());
+                                dirty = dirty
+                                    || ui
+                                        .selectable_value(value, variant, variant.to_string())
+                                        .changed();
                             }
                         });
                 });
@@ -524,7 +533,10 @@ impl WidgetValueTrait for RgValueType {
                         .selected_text(value.to_string())
                         .show_ui(ui, |ui| {
                             for variant in TextureUsage::iter() {
-                                ui.selectable_value(value, variant, variant.to_string());
+                                dirty = dirty
+                                    || ui
+                                        .selectable_value(value, variant, variant.to_string())
+                                        .changed();
                             }
                         });
                 });
@@ -580,6 +592,8 @@ impl WidgetValueTrait for RgValueType {
                                     if ui.input(|i| i.pointer.primary_released()) {
                                         *value = Some(*id);
                                         *drag_payload = None;
+
+                                        dirty = true;
                                     }
                                 }
                             }
@@ -591,8 +605,12 @@ impl WidgetValueTrait for RgValueType {
                 ui.label(param_name);
             }
         }
-        // This allows you to return your responses from the inline widgets.
-        Vec::new()
+
+        if dirty {
+            vec![MyResponse::ValueChanged]
+        } else {
+            Vec::new()
+        }
     }
 }
 
