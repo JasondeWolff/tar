@@ -5,7 +5,10 @@ use uuid::Uuid;
 
 use crate::{
     editor::node_graph::{NodeId, OutputId},
-    render_graph::{shader::Shader, RgDataType, RgGraph, RgNodeTemplate, RgValueType},
+    render_graph::{
+        shader::{Shader, ShaderBinding, ShaderBindingLayout},
+        RgDataType, RgGraph, RgNodeTemplate, RgValueType,
+    },
     wgpu_util::blit_pass,
 };
 
@@ -412,9 +415,34 @@ impl CompiledRenderGraph {
 
                     let render_target_format: wgpu::TextureFormat = in_tex.format.into();
 
+                    let layout_entries: Vec<wgpu::BindGroupLayoutEntry> = shader
+                        .get_bindings()
+                        .iter()
+                        .filter(|b| b.set == 0)
+                        .map(|b| b.to_layout_entry())
+                        .collect();
+
+                    let bind_group_layout =
+                        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                            label: Some(&format!("rg bind group layout {}", shader_id)),
+                            entries: &layout_entries,
+                        });
+
+                    let bgl_array = [&bind_group_layout];
+                    let pipeline_layout =
+                        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                            label: Some(&format!("rg pipeline layout {}", shader_id)),
+                            bind_group_layouts: if layout_entries.is_empty() {
+                                &[]
+                            } else {
+                                &bgl_array
+                            },
+                            push_constant_ranges: &[],
+                        });
+
                     let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                         label: Some(&format!("rg pipeline {}", shader_id)),
-                        layout: None,
+                        layout: Some(&pipeline_layout),
                         vertex: wgpu::VertexState {
                             module: shader.shader_module().as_ref().unwrap(),
                             entry_point: Some("vs_main"),
@@ -439,7 +467,11 @@ impl CompiledRenderGraph {
                     let mut tex_entries: Vec<(u32, usize)> = Vec::new(); // (binding, tex_idx)
                     let mut buf_entries: Vec<(u32, usize)> = Vec::new(); // (binding, buf_idx)
 
+                    let mut ii = 0;
                     for binding in shader.get_bindings() {
+                        println!("BINDING {} TYPE {:?}", ii, binding.resource_type);
+                        ii += 1;
+
                         match binding.resource_type {
                             RgDataType::Tex2D | RgDataType::Tex2DArray | RgDataType::Tex3D => {
                                 if let Ok(input_id) = graph[node_id].get_input(&binding.name) {
@@ -485,7 +517,7 @@ impl CompiledRenderGraph {
                     let bind_group = if !entries.is_empty() {
                         Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                             label: Some(&format!("rg bind group {}", shader_id)),
-                            layout: &pipeline.get_bind_group_layout(0),
+                            layout: &bind_group_layout,
                             entries: &entries,
                         }))
                     } else {
