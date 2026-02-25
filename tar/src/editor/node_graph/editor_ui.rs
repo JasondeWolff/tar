@@ -958,6 +958,11 @@ where
 
             let outputs = self.graph[self.node_id].outputs.clone();
             for (param_name, param_id) in outputs {
+                // Consumer passthrough outputs are drawn inline with their input row, not here.
+                if self.graph.is_consumer_passthrough_output(param_id) {
+                    continue;
+                }
+
                 let height_before = ui.min_rect().bottom();
                 responses.extend(
                     self.graph[self.node_id]
@@ -1271,13 +1276,35 @@ where
                     max_connections,
                     self.last_pointer_pos,
                 );
+
+                // Consumer inputs also draw their passthrough output port on the right at the same row.
+                if let Some(output_id) = self.graph[*param].consumer_output {
+                    draw_port(
+                        pan_zoom,
+                        ui,
+                        self.graph,
+                        self.node_id,
+                        user_state,
+                        pos2(port_right, port_height),
+                        &mut responses,
+                        AnyParameterId::Output(output_id),
+                        self.port_locations,
+                        self.conn_locations,
+                        self.ongoing_drag,
+                        false,
+                        0,
+                        1,
+                        self.last_pointer_pos,
+                    );
+                }
             }
         }
 
-        // Output ports
+        // Output ports (consumer passthrough outputs are excluded — they were drawn inline with inputs above)
         for ((_, param), port_height) in self.graph[self.node_id]
             .outputs
             .iter()
+            .filter(|(_, p)| !self.graph.is_consumer_passthrough_output(*p))
             .zip(output_port_heights.into_iter())
         {
             let pos_right = pos2(port_right, port_height);

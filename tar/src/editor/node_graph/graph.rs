@@ -53,6 +53,10 @@ pub struct InputParam<DataType, ValueType> {
     /// Does this input consume the connected output param? An output can be connected to
     /// multiple non-consumers or ONE consumer.
     pub consumer: bool,
+    /// The output port that mirrors this consumer input as a passthrough.
+    /// Only set when `consumer == true`.
+    #[serde(default)]
+    pub consumer_output: Option<OutputId>,
     /// Back-reference to the node containing this parameter.
     pub node: NodeId,
     /// How many connections can be made with this input. `None` means no limit.

@@ -45,13 +45,30 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
         consumer: bool,
         max_connections: Option<NonZeroU32>,
         shown_inline: bool,
-    ) -> InputId {
+    ) -> InputId
+    where
+        DataType: Clone,
+    {
+        // If this is a consumer input, create a paired passthrough output of the same type.
+        let consumer_output = if consumer {
+            let output_id = self.outputs.insert_with_key(|output_id| OutputParam {
+                id: output_id,
+                node: node_id,
+                typ: typ.clone(),
+            });
+            self.nodes[node_id].outputs.push((name.clone(), output_id));
+            Some(output_id)
+        } else {
+            None
+        };
+
         let input_id = self.inputs.insert_with_key(|input_id| InputParam {
             id: input_id,
             typ,
             value,
             kind,
             consumer,
+            consumer_output,
             node: node_id,
             max_connections,
             shown_inline,
@@ -70,7 +87,10 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
         kind: InputParamKind,
         consumer: bool,
         shown_inline: bool,
-    ) -> InputId {
+    ) -> InputId
+    where
+        DataType: Clone,
+    {
         self.add_wide_input_param(
             node_id,
             name,
@@ -85,9 +105,13 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
 
     pub fn remove_input_param(&mut self, param: InputId) {
         let node = self[param].node;
+        let consumer_output = self[param].consumer_output;
         self[node].inputs.retain(|(_, id)| *id != param);
         self.inputs.remove(param);
         self.connections.retain(|i, _| i != param);
+        if let Some(output_id) = consumer_output {
+            self.remove_output_param(output_id);
+        }
     }
 
     pub fn remove_output_param(&mut self, param: OutputId) {
@@ -193,6 +217,15 @@ impl<NodeData, DataType, ValueType> Graph<NodeData, DataType, ValueType> {
             // otherwise, insert at a selected position
             self.connections[input].insert(pos, output);
         }
+    }
+
+    /// Returns `true` if `output` is the auto-created passthrough output for a consumer input.
+    pub fn is_consumer_passthrough_output(&self, output: OutputId) -> bool {
+        let node_id = self.get_output(output).node;
+        self.nodes[node_id]
+            .inputs
+            .iter()
+            .any(|(_, inp)| self.inputs[*inp].consumer_output == Some(output))
     }
 
     /// Returns `true` if `output` is connected to at least one consumer input.
