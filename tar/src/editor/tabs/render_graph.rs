@@ -422,8 +422,7 @@ impl NodeTemplateTrait for RgNodeTemplate {
             }
             RgNodeTemplate::GraphicsPass => {
                 input_code_file(graph, "code");
-                input_tex_2d(graph, "in");
-                output_tex_2d(graph, "out");
+                input_tex_2d(graph, "render target");
             }
             RgNodeTemplate::DisplayOut => {
                 input_tex_2d(graph, "in");

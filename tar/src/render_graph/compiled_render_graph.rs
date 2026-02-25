@@ -32,7 +32,6 @@ struct CompiledGraphicsPass {
     pub pipeline: wgpu::RenderPipeline,
     pub bind_group: Option<wgpu::BindGroup>,
     pub render_target_texture: TextureHandle,
-    //pub input_bindings: Vec<InputBinding>,
 }
 
 pub struct CompiledRenderGraph {
@@ -397,12 +396,14 @@ impl CompiledRenderGraph {
                     let shader_id = shader_id.ok_or(anyhow!("Unassigned code file"))?;
 
                     // Resolve the render target from the "in" connection.
-                    let in_tex = *read_input_value(graph, node_id, "in")?.as_tex2d()?;
-                    let in_input_id = graph[node_id].get_input("in")?;
+                    let in_tex = *read_input_value(graph, node_id, "render target")?.as_tex2d()?;
+                    let in_input_id = graph[node_id].get_input("render target")?;
                     let render_target_handle = graph
                         .connection(in_input_id)
                         .and_then(|out| output_texture_handles.get(&out).copied())
-                        .ok_or(anyhow!("GraphicsPass 'in' not connected to a texture"))?;
+                        .ok_or(anyhow!(
+                            "GraphicsPass 'render target' not connected to a texture"
+                        ))?;
 
                     let shader = match shader_cache.get(&shader_id) {
                         Some(s) if s.shader_module().is_some() => s,
@@ -433,9 +434,6 @@ impl CompiledRenderGraph {
                         cache: None,
                     });
 
-                    // Collect bind group entries and logical input bindings from shader bindings.
-                    //let mut input_bindings: Vec<InputBinding> = Vec::new();
-
                     // Separate the index lookups so we can borrow texture_views / buffers
                     // after the closures are no longer needed.
                     let mut tex_entries: Vec<(u32, usize)> = Vec::new(); // (binding, tex_idx)
@@ -449,11 +447,6 @@ impl CompiledRenderGraph {
                                         if let Some(tex_handle) =
                                             output_texture_handles.get(&connected_output)
                                         {
-                                            // input_bindings.push(InputBinding {
-                                            //     set: binding.set,
-                                            //     binding: binding.binding,
-                                            //     data: InputBindingData::Texture(*tex_handle),
-                                            // });
                                             tex_entries.push((binding.binding, tex_handle.0));
                                         }
                                     }
@@ -465,11 +458,6 @@ impl CompiledRenderGraph {
                                         if let Some(buf_handle) =
                                             output_buffer_handles.get(&connected_output)
                                         {
-                                            // input_bindings.push(InputBinding {
-                                            //     set: binding.set,
-                                            //     binding: binding.binding,
-                                            //     data: InputBindingData::Buffer(*buf_handle),
-                                            // });
                                             buf_entries.push((binding.binding, buf_handle.0));
                                         }
                                     }
@@ -510,10 +498,9 @@ impl CompiledRenderGraph {
                         pipeline,
                         bind_group,
                         render_target_texture: render_target_handle,
-                        //input_bindings,
                     });
 
-                    if let Ok(output_id) = graph[node_id].get_output("out") {
+                    if let Ok(output_id) = graph[node_id].get_output("render target") {
                         output_texture_handles.insert(output_id, render_target_handle);
                     }
                 }

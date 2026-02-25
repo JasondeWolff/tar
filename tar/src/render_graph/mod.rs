@@ -380,7 +380,7 @@ impl RenderGraph {
                 .nodes
                 .get(graphics_pass_node)
                 .unwrap()
-                .get_input("in")
+                .get_input("render target")
                 .unwrap(),
             0,
         );
@@ -391,7 +391,7 @@ impl RenderGraph {
                 .nodes
                 .get(graphics_pass_node)
                 .unwrap()
-                .get_output("out")
+                .get_output("render target")
                 .unwrap(),
             node_graph
                 .graph
@@ -532,7 +532,7 @@ impl RenderGraph {
                 .collect();
 
             // Names of static inputs that should never be removed
-            let static_names: &[&str] = &["code", "in"];
+            let static_names: &[&str] = &["code", "render target"];
 
             // Current dynamic inputs
             let current_dynamic: Vec<(String, node_graph::InputId)> = graph[node_id]
