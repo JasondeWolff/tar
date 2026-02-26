@@ -9,5 +9,7 @@ pub fn init(ctx: &egui::Context) {
 
     style.interaction.selectable_labels = false;
 
+    style.debug.show_unaligned = false;
+
     ctx.set_style(style);
 }

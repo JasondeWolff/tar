@@ -9,7 +9,7 @@ use crate::{
         shader::{Shader, ShaderBinding, ShaderBindingLayout},
         RgDataType, RgGraph, RgNodeTemplate, RgValueType,
     },
-    wgpu_util::blit_pass,
+    wgpu_util::{blit_pass, empty_texture_view},
 };
 
 #[derive(Clone, Copy)]
@@ -41,7 +41,7 @@ pub struct CompiledRenderGraph {
     screen_size: [u32; 2],
 
     buffers: Vec<wgpu::Buffer>,
-    textures: Vec<wgpu::Texture>,
+    //textures: Vec<wgpu::Texture>,
     texture_views: Vec<wgpu::TextureView>,
 
     graphics_passes: Vec<CompiledGraphicsPass>,
@@ -112,8 +112,8 @@ impl CompiledRenderGraph {
         device: &wgpu::Device,
     ) -> anyhow::Result<Self> {
         let mut buffers = Vec::new();
-        let mut textures = Vec::new();
-        let mut texture_views = Vec::new();
+        //let mut textures = Vec::new();
+        let mut texture_views = vec![empty_texture_view(device)];
         let mut graphics_passes = Vec::new();
         let mut display_output = None;
 
@@ -130,7 +130,7 @@ impl CompiledRenderGraph {
                                  mip_level_count: u32,
                                  format,
                                  usage| {
-                let handle = TextureHandle(textures.len());
+                let handle = TextureHandle(texture_views.len());
 
                 let texture = device.create_texture(&wgpu::TextureDescriptor {
                     label: Some(&format!("rg texture {}", handle.0)),
@@ -148,7 +148,7 @@ impl CompiledRenderGraph {
                 });
                 let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                textures.push(texture);
+                //textures.push(texture);
                 texture_views.push(texture_view);
                 handle
             };
@@ -474,14 +474,21 @@ impl CompiledRenderGraph {
 
                         match binding.resource_type {
                             RgDataType::Tex2D | RgDataType::Tex2DArray | RgDataType::Tex3D => {
+                                let mut valid_input = false;
                                 if let Ok(input_id) = graph[node_id].get_input(&binding.name) {
                                     if let Some(connected_output) = graph.connection(input_id) {
                                         if let Some(tex_handle) =
                                             output_texture_handles.get(&connected_output)
                                         {
                                             tex_entries.push((binding.binding, tex_handle.0));
+                                            valid_input = true;
                                         }
                                     }
+                                }
+
+                                if !valid_input {
+                                    tex_entries.push((binding.binding, 0));
+                                    // TODO: throw not connected warning
                                 }
                             }
                             RgDataType::Buffer => {
@@ -560,7 +567,7 @@ impl CompiledRenderGraph {
         Ok(Self {
             screen_size,
             buffers,
-            textures,
+            //textures,
             texture_views,
             graphics_passes,
             display_output,
