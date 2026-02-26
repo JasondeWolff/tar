@@ -934,8 +934,8 @@ where
                         max_connections != 1,
                         self.graph.connections(param_id).len(),
                         max_connections,
-                    );
-                    let margin = 5.0;
+                    ) * pan_zoom.zoom;
+                    let margin = 5.0 * pan_zoom.zoom;
                     let missing_space =
                         port_height - (height_intermediate - height_before) + margin;
                     if missing_space > 0.0 {
