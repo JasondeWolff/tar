@@ -216,6 +216,9 @@ impl CodeEditor {
         );
         self.render_selection(&painter, ui, &font_id, rect, text_x, line_height);
         self.render_text(&painter, text_x, visible_rect, &visible_galley);
+        if self.readonly {
+            self.render_readonly_overlay(ui, visible_rect);
+        }
 
         // Input handling
         let time = ui.input(|i| i.time);
@@ -361,6 +364,27 @@ impl CodeEditor {
     // ========================================================================
     // Rendering
     // ========================================================================
+
+    fn render_readonly_overlay(&self, ui: &egui::Ui, visible_rect: egui::Rect) {
+        let clip = ui.clip_rect().intersect(visible_rect);
+        let painter = ui
+            .ctx()
+            .layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("readonly_overlay"),
+            ))
+            .with_clip_rect(clip);
+
+        let font_id = egui::FontId::proportional(44.0);
+        let color = egui::Color32::from_rgba_unmultiplied(180, 180, 180, 45);
+        painter.text(
+            egui::pos2(clip.max.x - 16.0, clip.max.y - 16.0),
+            egui::Align2::RIGHT_BOTTOM,
+            "READONLY",
+            font_id,
+            color,
+        );
+    }
 
     fn render_background(&self, painter: &egui::Painter, rect: egui::Rect) {
         painter.rect_filled(rect, 0.0, self.theme.bg());
