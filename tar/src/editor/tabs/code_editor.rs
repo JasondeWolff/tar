@@ -22,8 +22,14 @@ impl PartialEq for CodeEditorTab {
 
 impl CodeEditorTab {
     pub fn new(code_file: &CodeFile) -> Self {
-        let code_editor =
-            CodeEditor::new(&code_file.source, ColorTheme::GITHUB_DARK, Syntax::wgsl());
+        let readonly = code_file.builtin();
+
+        let code_editor = CodeEditor::new(
+            code_file.source(),
+            readonly,
+            ColorTheme::GITHUB_DARK,
+            Syntax::wgsl(),
+        );
 
         let title = code_file
             .relative_path()

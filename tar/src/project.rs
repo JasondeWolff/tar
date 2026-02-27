@@ -58,7 +58,8 @@ pub struct CodeFile {
     id: Uuid,
     relative_path: PathBuf,
     ty: CodeFileType,
-    pub source: String,
+    builtin: bool,
+    source: String,
 }
 
 impl CodeFile {
@@ -69,7 +70,18 @@ impl CodeFile {
             id: Uuid::new_v4(),
             relative_path: relative_path.into(),
             ty,
+            builtin: false,
             source,
+        }
+    }
+
+    pub fn new_builtin<P: Into<PathBuf>, S: Into<String>>(relative_path: P, source: S) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            relative_path: relative_path.into(),
+            ty: CodeFileType::Shared,
+            builtin: true,
+            source: source.into(),
         }
     }
 
@@ -79,6 +91,14 @@ impl CodeFile {
 
     pub fn ty(&self) -> CodeFileType {
         self.ty
+    }
+
+    pub fn builtin(&self) -> bool {
+        self.builtin
+    }
+
+    pub fn source(&self) -> &str {
+        &self.source
     }
 
     pub fn relative_path(&self) -> &PathBuf {
@@ -110,21 +130,42 @@ impl CodeFiles {
             extra_dirs: HashSet::new(),
         };
 
+        // The default main file
         let _ = code_files.create_file("main", CodeFileType::Fragment);
-        // let _ = code_files.create_file("bake_noise", CodeFileType::Compute);
-        // let _ = code_files.create_file("atmosphere/march", CodeFileType::Fragment);
-        // let _ = code_files.create_file("atmosphere/composite", CodeFileType::Fragment);
-        // let _ = code_files.create_file("shared/common", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/math", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/diffuse", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/dielectric", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/conductor", CodeFileType::Shared);
-        // let _ = code_files.create_file("shared/bsdf/sampling", CodeFileType::Shared);
 
-        // for i in 0..100 {
-        //     let _ =
-        //         code_files.create_file(format!("shared/bsdf/sampling_{}", i), CodeFileType::Shared);
-        // }
+        // All builtin files
+        let mut add_builtin_file = |relative_path: &str, src: &str| {
+            let file = CodeFile::new_builtin(relative_path, src);
+            let id = file.id;
+            code_files.files.insert(id, file);
+        };
+
+        // TODO: auto generate on compile time? For now this is ok...
+        add_builtin_file(
+            "std/common.shared",
+            include_str!("../assets/shaders/std/common.shared"),
+        );
+        add_builtin_file(
+            "std/math.shared",
+            include_str!("../assets/shaders/std/math.shared"),
+        );
+        add_builtin_file(
+            "std/samplers.shared",
+            include_str!("../assets/shaders/std/samplers.shared"),
+        );
+
+        add_builtin_file(
+            "std/input/input.shared",
+            include_str!("../assets/shaders/std/input/input.shared"),
+        );
+        add_builtin_file(
+            "std/input/gamepad.shared",
+            include_str!("../assets/shaders/std/input/gamepad.shared"),
+        );
+        add_builtin_file(
+            "std/input/keyboard.shared",
+            include_str!("../assets/shaders/std/input/keyboard.shared"),
+        );
 
         code_files
     }
@@ -229,6 +270,10 @@ impl CodeFiles {
 
     pub fn set_source<S: Into<String>>(&mut self, id: Uuid, source: S) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get_mut(&id) {
+            if code_file.builtin() {
+                anyhow::bail!("Cannot set source on builtin file");
+            }
+
             code_file.source = source.into();
             Ok(())
         } else {
@@ -238,6 +283,10 @@ impl CodeFiles {
 
     pub fn save_file(&self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get(&id) {
+            if code_file.builtin() {
+                return Ok(());
+            }
+
             let path = code_file.path(&self.code_path);
 
             if let Some(parent) = path.parent() {
@@ -263,6 +312,10 @@ impl CodeFiles {
 
     pub fn load_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(code_file) = self.files.get_mut(&id) {
+            if code_file.builtin() {
+                return Ok(());
+            }
+
             let mut file = std::fs::File::open(code_file.path(&self.code_path))?;
 
             let mut loaded_src = String::new();
@@ -353,6 +406,10 @@ impl CodeFiles {
         }
 
         if let Some(code_file) = self.files.get_mut(&id) {
+            if code_file.builtin() {
+                anyhow::bail!("Cannot move builtin file");
+            }
+
             if code_file.relative_path != new_relative_path {
                 let old_path = code_file.path(&self.code_path);
 
@@ -421,6 +478,10 @@ impl CodeFiles {
 
     pub fn delete_file(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(file) = self.files.remove(&id) {
+            if file.builtin() {
+                anyhow::bail!("Cannot delete builtin file");
+            }
+
             std::fs::remove_file(file.path(&self.code_path))?;
         } else {
             anyhow::bail!("No code file found with id {}", id);

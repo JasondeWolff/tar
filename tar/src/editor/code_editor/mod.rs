@@ -104,6 +104,7 @@ enum TouchScrollAxis {
 pub struct CodeEditor {
     pub doc: Rope,
     doc_hash: u64,
+    readonly: bool,
 
     edit_stack: EditStack,
     max_line_width: Option<f32>,
@@ -127,10 +128,11 @@ pub struct CodeEditor {
 }
 
 impl CodeEditor {
-    pub fn new(text: &str, theme: ColorTheme, syntax: Syntax) -> Self {
+    pub fn new(text: &str, readonly: bool, theme: ColorTheme, syntax: Syntax) -> Self {
         let mut code_editor = Self {
             doc: Rope::from_str(text),
             doc_hash: 0,
+            readonly,
             edit_stack: EditStack::default(),
             max_line_width: None,
             text_layout_job: None,

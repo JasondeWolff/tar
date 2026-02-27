@@ -105,7 +105,7 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
                 .code_files
                 .files_iter()
                 .filter(|(_, f)| f.ty() == CodeFileType::Fragment)
-                .map(|(id, f)| (*id, f.source.clone()))
+                .map(|(id, f)| (*id, f.source().to_string()))
                 .collect();
 
             let rg = project.render_graph_mut();
