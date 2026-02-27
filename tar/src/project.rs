@@ -46,59 +46,9 @@ impl CodeFileType {
 impl CodeFileType {
     pub fn default_source(&self) -> String {
         match self {
-            Self::Fragment => String::from(
-                r#"
-struct VertexOutput {
-    @builtin(position) position: vec4f,
-    @location(0) tex_coords: vec2f,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
-    var result: VertexOutput;
-
-    let x = i32(vertex_index) / 2;
-    let y = i32(vertex_index) & 1;
-
-    result.tex_coords = vec2f(
-        f32(x) * 2.0,
-        f32(y) * 2.0
-    );
-    result.position = vec4f(
-        result.tex_coords.x * 2.0 - 1.0,
-        1.0 - result.tex_coords.y * 2.0,
-        0.0, 1.0
-    );
-
-    return result;
-}
-
-@group(0)
-@binding(0)
-var r_color: texture_2d<f32>;
-
-@fragment
-fn fs_main(vertex: VertexOutput) -> @location(0) vec4f {
-    return vec4f(vertex.tex_coords, 0.0, 1.0);
-}
-"#,
-            ),
-            Self::Compute => String::from(
-                r#"
-@compute
-@workgroup_size(16, 16)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    
-}
-"#,
-            ),
-            Self::Shared => String::from(
-                r#"
-fn my_func(a: u32, b: u32) -> u32 {
-    return a + b;
-}
-"#,
-            ),
+            Self::Fragment => include_str!("../assets/shaders/default.frag").to_owned(),
+            Self::Compute => include_str!("../assets/shaders/default.comp").to_owned(),
+            Self::Shared => include_str!("../assets/shaders/default.shared").to_owned(),
         }
     }
 }
