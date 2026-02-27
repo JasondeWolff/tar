@@ -7,7 +7,7 @@ use crate::{
     editor::node_graph::{NodeId, OutputId},
     render_graph::{
         shader::{Shader, ShaderBinding, ShaderBindingLayout},
-        RgDataType, RgGraph, RgNodeTemplate, RgValueType,
+        RenderGraphInfo, RgDataType, RgGraph, RgNodeTemplate, RgValueType,
     },
     wgpu_util::{blit_pass, empty_texture_view},
 };
@@ -109,8 +109,11 @@ impl CompiledRenderGraph {
         graph: &RgGraph,
         shader_cache: &HashMap<Uuid, Shader>,
         screen_size: [u32; 2],
+        rg_info: &mut RenderGraphInfo,
         device: &wgpu::Device,
     ) -> anyhow::Result<Self> {
+        rg_info.warnings.clear();
+
         let mut buffers = Vec::new();
         //let mut textures = Vec::new();
         let mut texture_views = vec![empty_texture_view(device)];
@@ -467,11 +470,7 @@ impl CompiledRenderGraph {
                     let mut tex_entries: Vec<(u32, usize)> = Vec::new(); // (binding, tex_idx)
                     let mut buf_entries: Vec<(u32, usize)> = Vec::new(); // (binding, buf_idx)
 
-                    let mut ii = 0;
                     for binding in shader.get_bindings() {
-                        println!("BINDING {} TYPE {:?}", ii, binding.resource_type);
-                        ii += 1;
-
                         match binding.resource_type {
                             RgDataType::Tex2D | RgDataType::Tex2DArray | RgDataType::Tex3D => {
                                 let mut valid_input = false;
@@ -488,7 +487,9 @@ impl CompiledRenderGraph {
 
                                 if !valid_input {
                                     tex_entries.push((binding.binding, 0));
-                                    // TODO: throw not connected warning
+                                    rg_info
+                                        .warnings
+                                        .push(format!("{} is not connnected", binding.name));
                                 }
                             }
                             RgDataType::Buffer => {

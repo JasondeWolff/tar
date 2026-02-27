@@ -11,6 +11,7 @@ use crate::{
     },
     egui_util::{EguiPass, KeyModifiers},
     project::Project,
+    render_graph::RenderGraphInfo,
 };
 
 pub mod code_editor;
@@ -68,7 +69,7 @@ pub struct TabViewer<'a> {
     drag_payload: &'a mut Option<EditorDragPayload>,
     file_to_open: &'a mut Option<Uuid>,
     last_focussed_code_editor: &'a mut Option<TileId>,
-    render_graph_dirty: &'a mut bool,
+    rg_info: &'a mut RenderGraphInfo,
 
     viewport_texture: &'a mut Option<(wgpu::TextureView, [u32; 2])>,
     device: &'a wgpu::Device,
@@ -82,7 +83,7 @@ impl<'a> TabViewer<'a> {
         drag_payload: &'a mut Option<EditorDragPayload>,
         file_to_open: &'a mut Option<Uuid>,
         last_focussed_code_editor: &'a mut Option<TileId>,
-        render_graph_dirty: &'a mut bool,
+        rg_info: &'a mut RenderGraphInfo,
         viewport_texture: &'a mut Option<(wgpu::TextureView, [u32; 2])>,
         device: &'a wgpu::Device,
     ) -> Self {
@@ -93,7 +94,7 @@ impl<'a> TabViewer<'a> {
             drag_payload,
             file_to_open,
             last_focussed_code_editor,
-            render_graph_dirty,
+            rg_info,
             viewport_texture,
             device,
         }
@@ -116,14 +117,14 @@ impl<'a> egui_tiles::Behavior<Tab> for TabViewer<'a> {
                 tab.ui(ui, self.egui_pass, self.viewport_texture, self.device);
             }
             Tab::Console(tab) => {
-                tab.ui(ui, self.project);
+                tab.ui(ui, self.project, self.rg_info);
             }
             Tab::FileExplorer(tab) => {
                 tab.ui(ui, self.project, self.drag_payload, self.file_to_open);
             }
             Tab::RenderGraph(tab) => {
                 if tab.ui(ui, self.project, self.drag_payload) {
-                    *self.render_graph_dirty = true;
+                    self.rg_info.dirty = true;
                 }
             }
             Tab::CodeEditor(tab) => {

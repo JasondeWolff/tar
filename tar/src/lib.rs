@@ -4,7 +4,7 @@ use crate::{
     editor::Editor,
     egui_util::{EguiPass, KeyModifiers},
     project::{CodeFileType, Project},
-    render_graph::compiled_render_graph::CompiledRenderGraph,
+    render_graph::{compiled_render_graph::CompiledRenderGraph, RenderGraphInfo},
     runtime::{Runtime, Static},
     time::FpsCounter,
 };
@@ -21,6 +21,7 @@ pub struct App {
     fps_counter: FpsCounter,
     editor: Editor,
     project: Option<Project>,
+    rg_info: RenderGraphInfo,
 }
 
 impl App {
@@ -29,6 +30,7 @@ impl App {
             fps_counter: FpsCounter::new(),
             editor: Editor::new(),
             project: None,
+            rg_info: RenderGraphInfo::default(),
         }
     }
 }
@@ -87,13 +89,13 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
             );
         }
 
-        let mut render_graph_dirty = false;
+        app.rg_info.dirty = false;
         app.editor.ui(
             egui_ctx,
             egui_pass,
             &mut app.project,
             key_modifiers,
-            &mut render_graph_dirty,
+            &mut app.rg_info,
             device,
         );
 
@@ -143,22 +145,25 @@ impl runtime::RenderPipeline<App> for RenderPipeline {
             };
 
             // If any of the shaders are dirty, the graph itself or the target resolution, we recompile
-            if shaders_dirty || render_graph_dirty || viewport_resolution_dirty {
+            if shaders_dirty || app.rg_info.dirty || viewport_resolution_dirty {
                 log::info!(
                     "RECOMPILE RG shaders={} rg={} resolution={}!",
                     shaders_dirty,
-                    render_graph_dirty,
+                    app.rg_info.dirty,
                     viewport_resolution_dirty
                 );
 
-                match rg.compile(rg_target_resolution, device) {
+                match rg.compile(rg_target_resolution, &mut app.rg_info, device) {
                     Ok(compiled_rg) => {
                         // Cache the compiled graph when succesful
                         self.compiled_rg = Some(compiled_rg);
+                        app.rg_info.error = None;
                     }
                     Err(e) => {
-                        // TODO: send to console tab
-                        log::warn!("Failed to compile rg: {}", e);
+                        let err_msg = format!("Failed to compile rg: {}", e);
+
+                        log::warn!("{}", err_msg);
+                        app.rg_info.error = Some(err_msg);
                     }
                 }
             }

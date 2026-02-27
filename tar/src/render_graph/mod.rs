@@ -585,12 +585,14 @@ impl RenderGraph {
     pub fn compile(
         &self,
         screen_size: [u32; 2],
+        rg_info: &mut RenderGraphInfo,
         device: &wgpu::Device,
     ) -> anyhow::Result<CompiledRenderGraph> {
         CompiledRenderGraph::new(
             &self.node_graph.graph,
             &self.graph_state.shader_cache,
             screen_size,
+            rg_info,
             device,
         )
     }
@@ -598,4 +600,11 @@ impl RenderGraph {
     pub fn shaders_iter(&self) -> impl Iterator<Item = (&Uuid, &Shader)> {
         self.graph_state.shader_cache.iter()
     }
+}
+
+#[derive(Default)]
+pub struct RenderGraphInfo {
+    pub dirty: bool,
+    pub warnings: Vec<String>,
+    pub error: Option<String>,
 }

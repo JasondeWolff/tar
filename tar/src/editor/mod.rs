@@ -13,6 +13,7 @@ use crate::{
     },
     egui_util::{EguiPass, KeyModifiers},
     project::Project,
+    render_graph::RenderGraphInfo,
 };
 
 pub mod code_editor;
@@ -205,7 +206,7 @@ impl Editor {
         egui_pass: &mut EguiPass,
         project: &mut Option<Project>,
         key_modifiers: &KeyModifiers,
-        render_graph_dirty: &mut bool,
+        rg_info: &mut RenderGraphInfo,
         device: &wgpu::Device,
     ) {
         egui::TopBottomPanel::top("top_bar").show(egui_ctx, |ui| {
@@ -332,7 +333,7 @@ impl Editor {
                                 &mut self.drag_payload,
                                 &mut file_to_open,
                                 &mut tabs.last_focussed_code_editor,
-                                render_graph_dirty,
+                                rg_info,
                                 &mut self.viewport_texture,
                                 device,
                             ),

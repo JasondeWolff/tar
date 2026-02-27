@@ -1,7 +1,7 @@
 use egui_phosphor::regular as icons;
 use uuid::Uuid;
 
-use crate::project::Project;
+use crate::{project::Project, render_graph::RenderGraphInfo};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Severity {
@@ -9,10 +9,15 @@ enum Severity {
     Warning,
 }
 
+enum MessageOrigin {
+    File(Uuid),
+    RenderGraph,
+}
+
 struct ConsoleMessage {
     severity: Severity,
     text: String,
-    file: Uuid,
+    origin: MessageOrigin,
     line: Option<u32>,
 }
 
@@ -45,8 +50,8 @@ impl ConsoleTab {
         self.id
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, project: &Project) {
-        let messages = self.collect_messages(project);
+    pub fn ui(&mut self, ui: &mut egui::Ui, project: &Project, rg_info: &RenderGraphInfo) {
+        let messages = self.collect_messages(project, rg_info);
 
         ui.add_space(4.0);
         self.draw_toolbar(ui, &messages);
@@ -69,7 +74,11 @@ impl ConsoleTab {
             });
     }
 
-    fn collect_messages(&self, project: &Project) -> Vec<ConsoleMessage> {
+    fn collect_messages(
+        &self,
+        project: &Project,
+        rg_info: &RenderGraphInfo,
+    ) -> Vec<ConsoleMessage> {
         let rg = project.render_graph();
         let mut messages = Vec::new();
 
@@ -78,7 +87,7 @@ impl ConsoleTab {
                 messages.push(ConsoleMessage {
                     severity: Severity::Error,
                     text: err.clone(),
-                    file: *id,
+                    origin: MessageOrigin::File(*id),
                     line: *line,
                 });
             }
@@ -86,10 +95,28 @@ impl ConsoleTab {
                 messages.push(ConsoleMessage {
                     severity: Severity::Warning,
                     text: warn.clone(),
-                    file: *id,
+                    origin: MessageOrigin::File(*id),
                     line: *line,
                 });
             }
+        }
+
+        if let Some(rg_err) = &rg_info.error {
+            messages.push(ConsoleMessage {
+                severity: Severity::Error,
+                text: rg_err.clone(),
+                origin: MessageOrigin::RenderGraph,
+                line: None,
+            });
+        }
+
+        for rg_warn in &rg_info.warnings {
+            messages.push(ConsoleMessage {
+                severity: Severity::Warning,
+                text: rg_warn.clone(),
+                origin: MessageOrigin::RenderGraph,
+                line: None,
+            });
         }
 
         messages
@@ -180,24 +207,28 @@ impl ConsoleTab {
             ui.visuals().text_color(),
         );
 
-        // Draw file name (bottom-left, smaller and dimmer — Unity style)
-        let mut file_name = project
-            .code_files
-            .get_file(message.file)
-            .map(|file| file.relative_path().file_name().unwrap_or_default())
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
+        // Draw origin name (bottom-left, smaller and dimmer — Unity style)
 
-        if !file_name.is_empty() {
+        let mut origin_name = match &message.origin {
+            MessageOrigin::File(file) => project
+                .code_files
+                .get_file(*file)
+                .map(|file| file.relative_path().file_name().unwrap_or_default())
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            MessageOrigin::RenderGraph => "Render Graph".to_owned(),
+        };
+
+        if !origin_name.is_empty() {
             if let Some(line) = message.line {
-                file_name = format!("{file_name} ({line})");
+                origin_name = format!("{origin_name} ({line})");
             }
 
             let file_pos = egui::pos2(text_left, row_rect.min.y + Self::ROW_HEIGHT * 0.75);
             ui.painter().text(
                 file_pos,
                 egui::Align2::LEFT_CENTER,
-                &file_name,
+                &origin_name,
                 egui::FontId::proportional(11.0),
                 ui.visuals().weak_text_color(),
             );
