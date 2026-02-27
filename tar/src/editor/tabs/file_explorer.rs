@@ -113,6 +113,17 @@ impl FileExplorerTab {
         });
     }
 
+    /// Returns true if `path` is a builtin file or a folder that contains any builtin file.
+    fn is_builtin_path(project: &Project, path: &Path) -> bool {
+        if path.as_os_str().is_empty() {
+            return false;
+        }
+        project.code_files.files_iter().any(|(_, file)| {
+            file.builtin()
+                && (file.relative_path() == path || file.relative_path().starts_with(path))
+        })
+    }
+
     fn expand_parent(&mut self, path: &Path) {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -125,10 +136,20 @@ impl FileExplorerTab {
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
-            self.draw_create_file_menu(ui, project);
-            self.draw_create_folder_button(ui, project);
+            let parent_dir = self.selected_parent_dir(project);
+            let parent_is_builtin = Self::is_builtin_path(project, &parent_dir);
+            let selected_is_builtin = self
+                .selected
+                .as_deref()
+                .map(|p| Self::is_builtin_path(project, p))
+                .unwrap_or(false);
 
-            if self.selected.is_some() {
+            ui.add_enabled_ui(!parent_is_builtin, |ui| {
+                self.draw_create_file_menu(ui, project);
+                self.draw_create_folder_button(ui, project);
+            });
+
+            if self.selected.is_some() && !selected_is_builtin {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(8.0);
                     self.draw_delete_button(ui, project);
@@ -163,6 +184,9 @@ impl FileExplorerTab {
 
     fn create_new_file(&mut self, project: &mut Project, file_type: CodeFileType) {
         let parent_dir = self.selected_parent_dir(project);
+        if Self::is_builtin_path(project, &parent_dir) {
+            return;
+        }
         let extension = file_type.file_extension();
 
         let mut path = parent_dir.join("new_shader").with_extension(extension);
@@ -204,6 +228,9 @@ impl FileExplorerTab {
 
     fn create_new_folder(&mut self, project: &mut Project) {
         let parent_dir = self.selected_parent_dir(project);
+        if Self::is_builtin_path(project, &parent_dir) {
+            return;
+        }
 
         let mut path = parent_dir.join("new_folder");
         for i in 1..10000 {
@@ -624,7 +651,7 @@ impl FileExplorerTab {
                     if response.clicked() {
                         self.handle_item_click(item, file_to_open);
                     } else if response.drag_started() {
-                        self.handle_drag_start(item, drag_payload);
+                        self.handle_drag_start(item, project, drag_payload);
                     }
                 }
 
@@ -661,8 +688,12 @@ impl FileExplorerTab {
     fn handle_drag_start(
         &mut self,
         item: &ExplorerItem,
+        project: &Project,
         drag_payload: &mut Option<EditorDragPayload>,
     ) {
+        if Self::is_builtin_path(project, item.path()) {
+            return;
+        }
         match item {
             ExplorerItem::Folder { path, .. } => {
                 *drag_payload = Some(EditorDragPayload::Folder(path.clone()));
@@ -686,7 +717,12 @@ impl FileExplorerTab {
         };
 
         let target_dir = match target_item {
-            Some(ExplorerItem::Folder { path, .. }) => Some(path.clone()),
+            Some(ExplorerItem::Folder { path, .. }) => {
+                if Self::is_builtin_path(project, path) {
+                    return;
+                }
+                Some(path.clone())
+            }
             Some(ExplorerItem::File { .. }) => None,
             None => Some(PathBuf::new()),
         };
