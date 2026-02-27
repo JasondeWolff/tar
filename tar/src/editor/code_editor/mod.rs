@@ -779,7 +779,7 @@ impl CodeEditor {
         text: &str,
         time: f64,
     ) {
-        if text.is_empty() {
+        if text.is_empty() || self.readonly {
             return;
         }
 
@@ -865,6 +865,9 @@ impl CodeEditor {
     }
 
     fn handle_enter(&mut self, time: f64) {
+        if self.readonly {
+            return;
+        }
         let selection_before = self.selection.clone();
         let cursor_before = self.cursor;
         let (range, removed) = self.get_edit_range();
@@ -891,6 +894,9 @@ impl CodeEditor {
     }
 
     fn handle_backspace(&mut self, time: f64) {
+        if self.readonly {
+            return;
+        }
         let selection_before = self.selection.clone();
         let cursor_before = self.cursor;
 
@@ -926,6 +932,9 @@ impl CodeEditor {
     }
 
     fn handle_delete(&mut self, time: f64) {
+        if self.readonly {
+            return;
+        }
         let selection_before = self.selection.clone();
         let cursor_before = self.cursor;
 
@@ -961,6 +970,9 @@ impl CodeEditor {
     }
 
     fn handle_tab(&mut self, time: f64) {
+        if self.readonly {
+            return;
+        }
         let line = self.doc.char_to_line(self.cursor);
         let line_start = self.doc.line_to_char(line);
         let column = self.cursor - line_start;
@@ -1077,6 +1089,10 @@ impl CodeEditor {
     }
 
     fn cut(&mut self, ui: &mut egui::Ui) {
+        if self.readonly {
+            self.copy(ui);
+            return;
+        }
         let Some(selection) = self.selection.clone() else {
             return;
         };
@@ -1115,7 +1131,7 @@ impl CodeEditor {
     }
 
     fn paste(&mut self, ui: &mut egui::Ui, text: String) {
-        if text.is_empty() {
+        if text.is_empty() || self.readonly {
             return;
         }
 
@@ -1140,6 +1156,9 @@ impl CodeEditor {
     }
 
     fn undo(&mut self, ui: &mut egui::Ui) {
+        if self.readonly {
+            return;
+        }
         let Some(edit) = self.edit_stack.undo.pop() else {
             return;
         };
@@ -1159,6 +1178,9 @@ impl CodeEditor {
     }
 
     fn redo(&mut self, ui: &mut egui::Ui) {
+        if self.readonly {
+            return;
+        }
         let Some(edit) = self.edit_stack.redo.pop() else {
             return;
         };
@@ -1176,6 +1198,9 @@ impl CodeEditor {
     }
 
     fn format(&mut self) {
+        if self.readonly {
+            return;
+        }
         let cursor_line = self.doc.char_to_line(self.cursor);
         let line_start = self.doc.line_to_char(cursor_line);
         let cursor_col = self.cursor - line_start;
