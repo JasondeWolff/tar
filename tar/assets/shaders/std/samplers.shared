@@ -1,0 +1,17 @@
+// This file contains all the sampler provided by the application. Anisotropic sampling is not supported.
+
+@group(1)
+@binding(0)
+var linear_repeat_sampler: sampler;
+
+@group(1)
+@binding(1)
+var linear_clamp_sampler: sampler;
+
+@group(1)
+@binding(2)
+var nearest_repeat_sampler: sampler;
+
+@group(1)
+@binding(3)
+var nearest_clamp_sampler: sampler;

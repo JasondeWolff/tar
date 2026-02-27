@@ -1,0 +1,46 @@
+const MAX_GAMEPADS: u32 = 4;
+
+// All gamepad buttons, represented from 0.0 to 1.0
+struct GamepadButtons {
+    south: f32,
+    east: f32,
+    north: f32,
+    west: f32,
+    c: f32,
+    z: f32,
+
+    left_trigger: f32,
+    left_trigger_2: f32,
+    right_trigger: f32,
+    right_trigger_2: f32,
+
+    select: f32,
+    start: f32,
+    mode: f32,
+
+    left_thumb: f32,
+    right_thumb: f32,
+
+    dpad_up: f32,
+    dpad_down: f32,
+    dpad_left: f32,
+    dpad_right: f32,
+}
+
+// All gamepad axis, represented from -1.0 to 1.0
+struct GamepadAxis {
+    left_stick_x: f32,
+    left_stick_y: f32,
+    left_z: f32,
+    right_stick_x: f32,
+    right_stick_y: f32,
+    right_z: f32,
+    dpad_x: f32,
+    dpad_y: f32,
+}
+
+// A single gamepad
+struct Gamepad {
+    buttons: GamepadButtons,
+    axis: GamepadAxis,
+}

@@ -1,0 +1,9 @@
+const MAX_KEYS: u32 = 256;
+
+const KEYCODE_A: u32 = 111;
+
+// The state of a keyboard
+struct Keyboard {
+    current_keys: array<bool; MAX_KEYS>,
+    previous_keys: array<bool; MAX_KEYS>,
+}

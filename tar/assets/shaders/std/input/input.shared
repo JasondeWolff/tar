@@ -1,0 +1,10 @@
+@include gamepad.shared
+@include keyboard.shared
+
+@group(2)
+@binding(0)
+var<uniform> gamepads : array<Gamepad, MAX_GAMEPADS>;
+
+@group(2)
+@binding(1)
+var<uniform> keyboard : Keyboard;
