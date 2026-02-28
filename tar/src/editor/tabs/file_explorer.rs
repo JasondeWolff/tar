@@ -370,6 +370,8 @@ impl FileExplorerTab {
                 .map(|r| &r.path == item.path())
                 .unwrap_or(false);
 
+            let is_builtin = Self::is_builtin_path(project, item.path());
+
             if is_renaming {
                 rename_action = self.draw_rename_row(
                     ui,
@@ -394,6 +396,7 @@ impl FileExplorerTab {
                     text_x,
                     text_y,
                     is_selected,
+                    is_builtin,
                     &colors,
                 );
             }
@@ -482,6 +485,7 @@ impl FileExplorerTab {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_normal_row(
         &self,
         painter: &egui::Painter,
@@ -491,12 +495,24 @@ impl FileExplorerTab {
         text_x: f32,
         text_y: f32,
         is_selected: bool,
+        is_builtin: bool,
         colors: &ExplorerColors,
     ) {
         let color = if is_selected {
             colors.selected_text
         } else {
             colors.text
+        };
+
+        let color = if is_builtin {
+            egui::Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                (color.a() as f32 * 0.65) as u8,
+            )
+        } else {
+            color
         };
 
         painter.text(
